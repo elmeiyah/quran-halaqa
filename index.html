@@ -228,16 +228,20 @@ textarea{min-height:70px; resize:vertical}
 
 /* ================= نافذة بطاقة المشاركة ================= */
 .sheet{
-  position:fixed; inset:0; z-index:80; padding:18px;
+  position:fixed; inset:0; z-index:80; padding:14px;
   background:rgba(16,24,14,.62); display:grid; place-items:center;
   animation:viewIn .22s ease-out;
 }
 .sheet-in{
   background:var(--surface); border:1px solid var(--line); border-radius:18px;
-  padding:14px; width:100%; max-width:392px; max-height:92vh; overflow:auto;
+  padding:12px; width:100%; max-width:392px; max-height:94dvh;
+  display:flex; flex-direction:column; gap:0;
   box-shadow:0 20px 60px -20px rgba(0,0,0,.55);
 }
-.sheet-in img{width:100%; display:block; border-radius:12px; border:1px solid var(--line)}
+.sheet-in img{
+  display:block; margin:0 auto; border-radius:12px; border:1px solid var(--line);
+  max-width:100%; max-height:60dvh; width:auto; height:auto; object-fit:contain;
+}
 
 /* ================= المتصدرات ================= */
 .rank{display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:var(--r-m); border:1.5px solid var(--line); background:var(--surface); margin-bottom:9px}
@@ -339,7 +343,7 @@ const EMOJIS = ["🌱", "🌿", "☘️", "🍃", "✨", "🌾"];
 const AR_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 const AR_MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const STAGES = [
-  "بذرة في التربة", "أخرج شَطْأَه", "أخرج شَطْأَه", "فآزره", "فآزره", "فاستغلظ", "فاستوى على سوقه"
+  "بذرة في التربة", "أخرج شَطْأَه", "أخرج شَطْأَه", "نصف الطريق", "زرعك يقوى", "قاربتِ الإتمام", "فاستوى على سوقه"
 ];
 
 /* ---------------- أدوات عامة ---------------- */
@@ -1102,13 +1106,13 @@ async function buildCardCanvas() {
   const FB = '"Thmanyah Sans","Noto Sans Arabic",system-ui,sans-serif';
 
   const W = 360, PAD = 22, SC = 3;
-  const tasks = st.tasks, rowH = 28;
-  const headH = 104, plantH = 178;
-  const yStage = headH + plantH + 24;
-  const yWho = yStage + 44;
-  const yList = yWho + 34;
-  const yFoot = yList + tasks.length * rowH + 12;
-  const H = yFoot + 62 + 20 + 10;
+  const tasks = st.tasks, rowH = 26;
+  const headH = 94, plantH = 150;
+  const yStage = headH + plantH + 20;
+  const yWho = yStage + 40;
+  const yList = yWho + 32;
+  const yFoot = yList + tasks.length * rowH + 8;
+  const H = yFoot + 54 + 16 + 10;
 
   const cv = document.createElement("canvas");
   cv.width = W * SC; cv.height = H * SC;
@@ -1130,64 +1134,64 @@ async function buildCardCanvas() {
   for (let x = 0; x < W; x += 9) ctx.fillRect(x, headH - 14, 3, 14);
 
   ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-  ctx.font = `700 23px ${FD}`;
-  ctx.fillText("﴿ " + st.slogan + " ﴾", W / 2, 46, W - 28);
-  ctx.font = `400 12px ${FB}`;
+  ctx.font = `700 21px ${FD}`;
+  ctx.fillText("﴿ " + st.slogan + " ﴾", W / 2, 42, W - 28);
+  ctx.font = `400 11.5px ${FB}`;
   ctx.globalAlpha = .88;
-  ctx.fillText(st.course_name, W / 2, 74, W - 40);
+  ctx.fillText(st.course_name, W / 2, 68, W - 40);
   ctx.globalAlpha = 1;
 
   /* النبتة */
-  const psc = 1.1;
+  const psc = 0.93;
   ctx.save();
-  ctx.translate(W / 2 - 60 * psc, headH + 6);
+  ctx.translate(W / 2 - 60 * psc, headH + 4);
   ctx.scale(psc, psc);
   plantCanvas(ctx, total ? done / total : 0, C);
   ctx.restore();
 
   /* اسم المرحلة */
-  ctx.textAlign = "center"; ctx.fillStyle = C.leaf; ctx.font = `700 19px ${FD}`;
+  ctx.textAlign = "center"; ctx.fillStyle = C.leaf; ctx.font = `700 18px ${FD}`;
   ctx.fillText(stage, W / 2, yStage, W - 40);
 
   /* فاصل + الاسم والتاريخ */
   ctx.strokeStyle = C.line; ctx.lineWidth = 1.4; ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(PAD, yStage + 16); ctx.lineTo(W - PAD, yStage + 16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD, yStage + 14); ctx.lineTo(W - PAD, yStage + 14); ctx.stroke();
 
-  ctx.textAlign = "right"; ctx.fillStyle = C.ink; ctx.font = `700 16px ${FD}`;
+  ctx.textAlign = "right"; ctx.fillStyle = C.ink; ctx.font = `700 15px ${FD}`;
   ctx.fillText(S.student ? S.student.name : "", W - PAD, yWho, W - 150);
   ctx.textAlign = "left"; ctx.fillStyle = C.ink2; ctx.font = `400 11.5px ${FB}`;
   ctx.fillText(arDate(S.date), PAD, yWho);
 
-  ctx.beginPath(); ctx.moveTo(PAD, yWho + 14); ctx.lineTo(W - PAD, yWho + 14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD, yWho + 12); ctx.lineTo(W - PAD, yWho + 12); ctx.stroke();
   ctx.setLineDash([]);
 
   /* قائمة المهام */
   tasks.forEach((t, i) => {
     const ok = taskDone(t, dayState.tasks[t.key]);
     const y = yList + i * rowH;
-    const cx = W - PAD - 9, cy = y - 5;
+    const cx = W - PAD - 8, cy = y - 5;
     ctx.fillStyle = ok ? C.leaf : C.surface2;
-    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, 8.5, 0, 7); ctx.fill();
     if (ok) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
       ctx.beginPath(); ctx.moveTo(cx - 4, cy + .3); ctx.lineTo(cx - 1.2, cy + 3.4); ctx.lineTo(cx + 4.2, cy - 3.4); ctx.stroke();
     } else {
       ctx.strokeStyle = C.line; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 8.5, 0, 7); ctx.stroke();
     }
     ctx.textAlign = "right";
     ctx.fillStyle = ok ? C.ink : C.ink2;
-    ctx.font = `${ok ? 700 : 400} 13.5px ${FB}`;
-    ctx.fillText(t.title, W - PAD - 26, y, W - PAD * 2 - 34);
+    ctx.font = `${ok ? 700 : 400} 13px ${FB}`;
+    ctx.fillText(t.title, W - PAD - 24, y, W - PAD * 2 - 32);
   });
 
   /* شريط الدرجة */
   ctx.fillStyle = C.leafSoft;
-  roundRect(ctx, PAD, yFoot, W - PAD * 2, 54, 13); ctx.fill();
-  ctx.textAlign = "right"; ctx.fillStyle = C.leaf; ctx.font = `400 13px ${FB}`;
-  ctx.fillText(`أنجزتُ ${done} من ${total} مهام`, W - PAD - 14, yFoot + 33);
-  ctx.textAlign = "left"; ctx.font = `700 26px ${FD}`;
-  ctx.fillText(`${pts} درجة`, PAD + 14, yFoot + 37);
+  roundRect(ctx, PAD, yFoot, W - PAD * 2, 48, 12); ctx.fill();
+  ctx.textAlign = "right"; ctx.fillStyle = C.leaf; ctx.font = `400 12.5px ${FB}`;
+  ctx.fillText(`أنجزتُ ${done} من ${total} مهام`, W - PAD - 13, yFoot + 30);
+  ctx.textAlign = "left"; ctx.font = `700 23px ${FD}`;
+  ctx.fillText(`${pts} درجة`, PAD + 13, yFoot + 33);
 
   /* شريط التربة */
   ctx.globalAlpha = .8; ctx.fillStyle = C.soil;
@@ -1224,8 +1228,8 @@ function showCardSheet(dataUrl, blob) {
   const sheet = el("div", "sheet");
   sheet.innerHTML = `<div class="sheet-in">
       <img src="${dataUrl}" alt="بطاقة إنجاز اليوم">
-      <p class="muted center" style="font-size:.78rem;margin:10px 0 12px">
-        اضغطي مطوّلاً على الصورة لحفظها في الاستوديو، أو استخدمي زر الحفظ.</p>
+      <p class="muted center" style="font-size:.75rem;margin:8px 0 10px">
+        أو اضغطي مطوّلاً على الصورة لحفظها في الاستوديو</p>
       <div class="grid2">
         <button class="btn" id="sh-save">حفظ الصورة</button>
         <button class="btn ghost" id="sh-close">إغلاق</button>
