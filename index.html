@@ -279,6 +279,8 @@ textarea{min-height:70px; resize:vertical}
 .srow .sgrid input{padding:8px 9px; text-align:center}
 .srow .sfoot{display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:9px; border-top:1px dashed var(--line); font-size:.82rem}
 .kv{display:flex; justify-content:space-between; gap:10px; font-size:.85rem; padding:4px 0}
+.srow .sfoot{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
+  margin-top:10px; padding-top:9px; border-top:1px dashed var(--line)}
 .kv span:first-child{color:var(--ink-2)}
 
 /* ================= جداول الأدمن ================= */
@@ -328,6 +330,7 @@ const DEFAULT_SETTINGS = {
   rest_days: [5],
   exam_days: [6],
   leaderboard_mode: "top3",
+  supervisor_whatsapp: "",
   tasks: [
     { key: "self",       title: "السرد الذاتي",         hint: "تسجيل صوتي أو كتابة بورقة", mode: "check",   required: true },
     { key: "partner",    title: "السرد على الرفيقة",     hint: "دون أخطاء، وإذا حصل خطأ يُعاد الوجه الذي حصل فيه الخطأ من بدايته", mode: "check" },
@@ -389,6 +392,16 @@ async function saveFile(filename, blob) {
   return true;
 }
 
+/* ---------------- تطبيع الاسم العربي (يوافق qc_norm في قاعدة البيانات) ---------------- */
+function arNorm(v) {
+  return String(v == null ? "" : v).toLowerCase()
+    .replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627")
+    .replace(/\u0649/g, "\u064A")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/[\u064B-\u0652\u0640]/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
 /* ---------------- حساب الإنجاز والدرجات (قاعدة واحدة للجميع) ---------------- */
 function taskDone(t, v) { return t.mode === "counter" ? (+v >= (t.target || 3)) : !!v; }
 function calcPoints(tasks, settings) {
@@ -431,7 +444,9 @@ const SupaDB = {
   adminData(t, w, d) { return this.rpc("app_admin_data", { p_token: t, p_week: w, p_date: d }); },
   adminSetScore(t, sid, w, kind, pts, note) { return this.rpc("app_admin_set_score", { p_token: t, p_student: sid, p_week: w, p_kind: kind, p_points: pts, p_note: note }); },
   adminSaveSettings(t, s) { return this.rpc("app_admin_save_settings", { p_token: t, p_settings: s }); },
-  adminUpdateStudent(t, id, patch) { return this.rpc("app_admin_update_student", { p_token: t, p_student: id, p_patch: patch }); }
+  adminUpdateStudent(t, id, patch) { return this.rpc("app_admin_update_student", { p_token: t, p_student: id, p_patch: patch }); },
+  adminSetPin(t, id, pin) { return this.rpc("app_admin_set_pin", { p_token: t, p_student: id, p_new: pin }); },
+  changeMyPin(t, oldPin, newPin) { return this.rpc("app_change_my_pin", { p_token: t, p_old: oldPin, p_new: newPin }); }
 };
 
 const LocalDB = {
@@ -451,16 +466,45 @@ const LocalDB = {
   async settings() { return this.db().settings; },
   async register(p) {
     const d = this.db();
-    if (d.students.some(s => s.name.trim() === p.name.trim())) throw new Error("هذا الاسم مسجّل مسبقًا، سجّلي الدخول بدلاً من ذلك");
+    const wa = String(p.whatsapp || "").replace(/\D/g, "");
+    if (String(p.review_amount || "").trim().length < 2) throw new Error("اكتبي كمية المراجعة");
+    if (String(p.address || "").trim().length < 3) throw new Error("اكتبي عنوان السكن");
+    if (wa.length < 8) throw new Error("اكتبي رقم الواتساب (٨ أرقام على الأقل)");
+    if (d.students.some(s => String(s.whatsapp || "").replace(/\D/g, "") === wa)) throw new Error("هذا الرقم مسجّل مسبقًا باسم حافظة أخرى");
+    if (d.students.some(s => arNorm(s.name) === arNorm(p.name))) throw new Error("هذا الاسم مسجّل مسبقًا، سجّلي الدخول بدلاً من ذلك");
+    p = Object.assign({}, p, { whatsapp: wa });
     const s = { id: this.uid(), token: this.uid() + this.uid(), name: p.name.trim(), pin: p.pin, review_amount: p.review_amount, address: p.address, whatsapp: p.whatsapp, created_at: new Date().toISOString(), active: true };
     d.students.push(s); this.put(d);
     return { token: s.token, student: this.pub(s) };
   },
   pub(s) { return { id: s.id, name: s.name, review_amount: s.review_amount, address: s.address, whatsapp: s.whatsapp }; },
   async login(name, pin) {
-    const d = this.db(); const s = d.students.find(x => x.name.trim() === String(name).trim());
-    if (!s || s.pin !== pin) throw new Error("الاسم أو الرمز غير صحيح");
+    const d = this.db(), n = arNorm(name);
+    if (!n) throw new Error("اكتبي اسمك");
+    let s = d.students.find(x => arNorm(x.name) === n);
+    if (!s) {
+      const m = d.students.filter(x => arNorm(x.name).startsWith(n + " "));
+      if (m.length === 1) s = m[0];
+      else if (m.length > 1) throw new Error("فيه أكثر من حافظة بهذا الاسم — اكتبي اسمك كاملاً");
+    }
+    if (!s) throw new Error("ما لقينا هذا الاسم — تأكدي من كتابته مثل ما سجّلتِه، أو راجعي المشرفة");
+    if (s.pin !== pin) throw new Error("الرمز السري غير صحيح — لو نسيتِه راجعي المشرفة لتعيد ضبطه");
+    if (s.active === false) throw new Error("حسابك غير مفعّل حاليًا — راجعي المشرفة");
     return { token: s.token, student: this.pub(s) };
+  },
+  async adminSetPin(t, id, pin) {
+    if (!/^\d{4,8}$/.test(pin)) throw new Error("الرمز أرقام فقط (٤ خانات أو أكثر)");
+    const d = this.db(); const s = d.students.find(x => x.id === id);
+    if (!s) throw new Error("الحافظة غير موجودة");
+    s.pin = pin; this.put(d); return { ok: true };
+  },
+  async changeMyPin(t, oldPin, newPin) {
+    const d = this.db();
+    const s = d.students.find(x => x.token === t);
+    if (!s) throw new Error("انتهت الجلسة، سجّلي الدخول من جديد");
+    if (s.pin !== oldPin) throw new Error("الرمز الحالي غير صحيح");
+    if (!/^\d{4,8}$/.test(newPin)) throw new Error("الرمز الجديد أرقام فقط (٤ خانات أو أكثر)");
+    s.pin = newPin; this.put(d); return { ok: true };
   },
   async getDay(t, date) {
     const s = this.who(t); const d = this.db();
@@ -793,8 +837,30 @@ function viewLogin(app) {
       <label class="field">الرمز السري<input type="password" id="lg-pin" inputmode="numeric" placeholder="٤ أرقام"></label>
       <button class="btn wide" id="lg-do">دخول</button>
       <button class="btn ghost wide" data-go="register">ما عندي حساب — تسجيل جديد</button>
+      <button class="btn ghost wide" id="lg-forgot" style="border:0;color:var(--ink-2);font-size:.85rem">نسيتِ اسمك أو رمزك؟</button>
     </div>
+    <div id="lg-help"></div>
   </div>`;
+  $("#lg-forgot").onclick = () => {
+    const box = $("#lg-help");
+    if (box.innerHTML) { box.innerHTML = ""; return; }
+    const wa = (S.settings && S.settings.supervisor_whatsapp || "").replace(/\D/g, "");
+    box.innerHTML = `<div class="panel stack">
+      <div class="section-title">ما تذكرتِ بياناتك؟</div>
+      <div style="font-size:.88rem;line-height:1.8">
+        <b>نسيتِ الاسم؟</b> جرّبي اسمك الأول وحده — يكفي إذا ما فيه حافظة ثانية بنفس الاسم.
+        وما يفرق شكل الهمزات ولا التشكيل ولا المسافات.
+      </div>
+      <div style="font-size:.88rem;line-height:1.8">
+        <b>نسيتِ الرمز؟</b> الرمز محفوظ مشفّرًا وما أحد يقدر يشوفه — ولا حتى المشرفة.
+        بس المشرفة تقدر تعطيكِ رمزًا جديدًا، وبعد ما تدخلين غيّريه من صفحة «إنجازي».
+      </div>
+      ${wa ? `<a class="btn wide" target="_blank" rel="noopener"
+          href="https://wa.me/${esc(wa.length > 8 ? wa : "965" + wa)}?text=${encodeURIComponent("السلام عليكم، نسيت رمز الدخول لموقع الحلقة. اسمي: ")}">
+          راسلي المشرفة على واتساب</a>`
+        : `<p class="muted center" style="font-size:.85rem">راسلي المشرفة في قروب الحلقة.</p>`}
+    </div>`;
+  };
   $("#lg-do").onclick = async () => {
     const n = $("#lg-name").value.trim(), p = $("#lg-pin").value.trim();
     if (!n || !p) return toast("اكتبي الاسم والرمز");
@@ -813,11 +879,11 @@ function viewRegister(app) {
     ${demoBanner()}
     <div class="panel stack">
       <h2 style="font-size:1.15rem">تسجيل حافظة جديدة</h2>
-      <p class="muted" style="font-size:.85rem">بياناتك تصل للمشرفة، والرمز السري يخصّك أنتِ لدخول الموقع.</p>
+      <p class="muted" style="font-size:.85rem">كل الحقول مطلوبة. بياناتك تصل للمشرفة وحدها، ورقم الواتساب يفيدك لو نسيتِ رمزك.</p>
       <label class="field">الاسم الثلاثي<input type="text" id="rg-name" placeholder="مثال: نورة عبدالله الفهد"></label>
       <label class="field">كمية المراجعة<input type="text" id="rg-review" placeholder="مثال: جزء عمّ / ٣ أجزاء"></label>
       <label class="field">عنوان السكن<input type="text" id="rg-addr" placeholder="المنطقة والقطعة"></label>
-      <label class="field">رقم الواتساب <span class="muted">(اختياري)</span><input type="tel" id="rg-wa" placeholder="مثال: 9xxxxxxx"></label>
+      <label class="field">رقم الواتساب<input type="tel" id="rg-wa" inputmode="numeric" placeholder="مثال: 99887766"></label>
       <label class="field">رمز سري من ٤ أرقام<input type="password" id="rg-pin" inputmode="numeric" placeholder="تذكّريه جيدًا"></label>
       <button class="btn wide" id="rg-do">إنشاء الحساب</button>
       <button class="btn ghost wide" data-go="login">عندي حساب — دخول</button>
@@ -828,9 +894,13 @@ function viewRegister(app) {
       name: $("#rg-name").value.trim(), review_amount: $("#rg-review").value.trim(),
       address: $("#rg-addr").value.trim(), whatsapp: $("#rg-wa").value.trim(), pin: $("#rg-pin").value.trim()
     };
-    if (!p.name) return toast("اكتبي اسمك");
+    if (p.name.length < 3) return toast("اكتبي اسمك كاملاً");
     if (!/^\d{4,8}$/.test(p.pin)) return toast("الرمز السري أرقام فقط (٤ خانات أو أكثر)");
-    if (!p.address) return toast("اكتبي عنوان السكن");
+    if (p.review_amount.length < 2) return toast("اكتبي كمية المراجعة");
+    if (p.address.length < 3) return toast("اكتبي عنوان السكن");
+    p.whatsapp = p.whatsapp.replace(/\D/g, "");
+    if (p.whatsapp.length < 8) return toast("اكتبي رقم الواتساب (٨ أرقام على الأقل)");
+    if (p.whatsapp.length > 15) return toast("رقم الواتساب غير صحيح");
     try {
       const r = await DB.register(p);
       S.token = r.token; S.student = r.student;
@@ -1337,7 +1407,25 @@ async function viewMe(app) {
 
   $("#m-info").innerHTML = `<div class="section-title">بياناتك</div>
     <div class="between" style="font-size:.88rem"><span class="muted">كمية المراجعة</span><b>${esc((S.student && S.student.review_amount) || "—")}</b></div>
-    <div class="between" style="font-size:.88rem;margin-top:6px"><span class="muted">عنوان السكن</span><b>${esc((S.student && S.student.address) || "—")}</b></div>`;
+    <div class="between" style="font-size:.88rem;margin-top:6px"><span class="muted">عنوان السكن</span><b>${esc((S.student && S.student.address) || "—")}</b></div>
+    <div class="hr"></div>
+    <button class="btn ghost wide" id="m-pin">تغيير الرمز السري</button>
+    <div id="m-pinbox"></div>`;
+  $("#m-pin").onclick = () => {
+    const box = $("#m-pinbox");
+    if (box.innerHTML) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="stack" style="margin-top:12px">
+        <label class="field">الرمز الحالي<input type="password" id="pw-old" inputmode="numeric"></label>
+        <label class="field">الرمز الجديد<input type="password" id="pw-new" inputmode="numeric" placeholder="٤ أرقام أو أكثر"></label>
+        <button class="btn wide" id="pw-do">حفظ الرمز الجديد</button>
+      </div>`;
+    $("#pw-do").onclick = async () => {
+      try {
+        await DB.changeMyPin(S.token, $("#pw-old").value.trim(), $("#pw-new").value.trim());
+        box.innerHTML = ""; toast("تم تغيير رمزك 🌿");
+      } catch (e) { toast(e.message); }
+    };
+  };
 }
 
 function streakLabel(n) {
@@ -1439,6 +1527,12 @@ function bindWeek(app, id) {
   if (n && !n.disabled) n.onclick = () => { A.week = shiftDate(A.week, 7); viewAdmin(app); };
 }
 
+/* رقم الواتساب بصيغة دولية: الأرقام المحلية (٨ خانات) تأخذ مفتاح الكويت */
+function waIntl(v) {
+  const d = String(v || "").replace(/\D/g, "");
+  return d.length <= 8 ? "965" + d : d;
+}
+
 /* ---------------- تبويب اليوم ---------------- */
 function adminToday(b, app) {
   const d = A.data, st = d.settings;
@@ -1464,7 +1558,7 @@ function adminToday(b, app) {
       <div class="section-title">لم يسجّلن بعد</div>
       ${absent.length ? absent.map(s => `<div class="between" style="padding:7px 0;border-bottom:1px solid var(--line)">
           <span>${esc(s.name)}</span>
-          ${s.whatsapp ? `<a class="btn ghost sm" target="_blank" rel="noopener" href="https://wa.me/965${esc(String(s.whatsapp).replace(/\D/g, "").slice(-8))}?text=${encodeURIComponent("تذكير لطيف بمهام اليوم 🌱")}">تذكير واتساب</a>` : `<span class="pill mute">بدون رقم</span>`}
+          ${s.whatsapp ? `<a class="btn ghost sm" target="_blank" rel="noopener" href="https://wa.me/${esc(waIntl(s.whatsapp))}?text=${encodeURIComponent("تذكير لطيف بمهام اليوم 🌱")}">تذكير واتساب</a>` : `<span class="pill mute">بدون رقم</span>`}
         </div>`).join("") : `<p class="muted">ما شاء الله، الجميع سجّل اليوم 🌿</p>`}
     </div>
     <div class="panel">
@@ -1620,6 +1714,13 @@ function adminStudents(b, app) {
         <div class="kv"><span>الواتساب</span><b class="tnum">${esc(s.whatsapp || "—")}</b></div>
         <div class="kv"><span>تاريخ التسجيل</span><b class="tnum">${esc((s.created_at || "").slice(0, 10))}</b></div>
       </div>
+      <div class="sfoot">
+        <span class="muted" style="font-size:.78rem">نسيت رمزها؟</span>
+        <span class="row" style="gap:6px">
+          <input type="text" inputmode="numeric" data-newpin placeholder="رمز جديد" style="width:110px;padding:7px 9px;text-align:center">
+          <button class="btn sm" data-setpin>تعيين</button>
+        </span>
+      </div>
     </div>`).join("") : `<div class="panel center muted">لا توجد حافظات مسجّلات بعد.</div>`}`;
   b.querySelectorAll("[data-act]").forEach(c => {
     c.onchange = async () => {
@@ -1629,6 +1730,19 @@ function adminStudents(b, app) {
         c.closest("label").className = "pill " + (c.checked ? "leaf" : "mute");
         toast("تم التحديث");
       } catch (e) { toast(e.message); c.checked = !c.checked; }
+    };
+  });
+  b.querySelectorAll("[data-setpin]").forEach(btn => {
+    btn.onclick = async () => {
+      const card = btn.closest(".srow"), sid = card.getAttribute("data-sid");
+      const inp = card.querySelector("[data-newpin]"), pin = inp.value.trim();
+      const name = card.querySelector(".sname").textContent;
+      if (!/^\d{4,8}$/.test(pin)) return toast("الرمز أرقام فقط (٤ خانات أو أكثر)");
+      try {
+        await DB.adminSetPin(S.admin, sid, pin);
+        inp.value = "";
+        toast(`تم — أرسلي الرمز ${pin} إلى ${name.split(" ")[0]}`, 5000);
+      } catch (e) { toast(e.message); }
     };
   });
 }
@@ -1643,6 +1757,8 @@ function adminSettings(b, app) {
       <label class="field">اسم الدورة<input type="text" id="s-name" value="${esc(st.course_name)}"></label>
       <label class="field">شعار الدورة (يظهر في الأعلى وفي البطاقة)<input type="text" id="s-slogan" value="${esc(st.slogan)}"></label>
       <label class="field">سطر تعريفي صغير<input type="text" id="s-sub" value="${esc(st.subtitle || "")}"></label>
+      <label class="field">رقم واتساب المشرفة <span class="muted">(يظهر للحافظة إذا نسيت رمزها)</span>
+        <input type="tel" id="s-wa" inputmode="numeric" placeholder="مثال: 9xxxxxxx" value="${esc(st.supervisor_whatsapp || "")}"></label>
       <label class="field">ثيم الألوان<select id="s-theme">${themes.map(([v, t]) => `<option value="${v}" ${st.theme === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
     </div>
     <div class="panel stack" style="margin-bottom:12px">
@@ -1708,6 +1824,7 @@ function adminSettings(b, app) {
     const next = {
       course_name: $("#s-name").value.trim(), slogan: $("#s-slogan").value.trim(),
       subtitle: $("#s-sub").value.trim(), theme: $("#s-theme").value,
+      supervisor_whatsapp: $("#s-wa").value.trim(),
       points_per_task: +$("#s-pts").value || 5, backfill_days: +$("#s-back").value || 3,
       task_days: days, exam_days: exams, rest_days: rest, tasks
     };
