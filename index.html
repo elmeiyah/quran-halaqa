@@ -274,7 +274,9 @@ textarea{min-height:70px; resize:vertical}
 /* ================= بطاقات الأدمن ================= */
 .srow{background:var(--surface); border:1.5px solid var(--line); border-radius:var(--r-m); padding:12px 13px; margin-bottom:10px}
 .srow .sname{font-family:var(--f-display); font-size:1rem; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-.srow .sgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px}
+.srow .sgrid{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:10px}
+.srow .sgrid label.pen{color:var(--rose)}
+.srow .sgrid label.pen input{border-color:color-mix(in srgb, var(--rose) 45%, var(--line)); color:var(--rose); font-weight:700}
 .srow .sgrid label{display:flex; flex-direction:column; gap:4px; font-size:.75rem; color:var(--ink-2)}
 .srow .sgrid input{padding:8px 9px; text-align:center}
 .srow .sfoot{display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:9px; border-top:1px dashed var(--line); font-size:.82rem}
@@ -446,7 +448,8 @@ const SupaDB = {
   adminSaveSettings(t, s) { return this.rpc("app_admin_save_settings", { p_token: t, p_settings: s }); },
   adminUpdateStudent(t, id, patch) { return this.rpc("app_admin_update_student", { p_token: t, p_student: id, p_patch: patch }); },
   adminSetPin(t, id, pin) { return this.rpc("app_admin_set_pin", { p_token: t, p_student: id, p_new: pin }); },
-  changeMyPin(t, oldPin, newPin) { return this.rpc("app_change_my_pin", { p_token: t, p_old: oldPin, p_new: newPin }); }
+  changeMyPin(t, oldPin, newPin) { return this.rpc("app_change_my_pin", { p_token: t, p_old: oldPin, p_new: newPin }); },
+  adminChangePin(t, newPin) { return this.rpc("app_admin_change_pin", { p_token: t, p_new: newPin }); }
 };
 
 const LocalDB = {
@@ -523,11 +526,15 @@ const LocalDB = {
   },
   weekRows(d, week) {
     const days = []; for (let i = 0; i < 7; i++) days.push(shiftDate(week, i));
-    return d.students.filter(s => s.active !== false).map(s => {
+    const rows = d.students.filter(s => s.active !== false).map(s => {
       const auto = d.entries.filter(e => e.student_id === s.id && days.includes(e.date)).reduce((a, b) => a + (b.auto_points || 0), 0);
       const manual = d.scores.filter(x => x.student_id === s.id && x.week === week).reduce((a, b) => a + (+b.points || 0), 0);
       return { id: s.id, name: s.name, auto, manual, total: auto + manual };
-    }).sort((a, b) => b.total - a.total);
+    }).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "ar"));
+    /* المتساويات يأخذن نفس المركز، والمركز التالي هو الذي يليه مباشرة */
+    let rank = 0, prev = null;
+    rows.forEach(r => { if (r.total !== prev) { rank++; prev = r.total; } r.rank = rank; });
+    return rows;
   },
   async weekSummary(t, week) {
     const s = this.who(t); const d = this.db();
@@ -570,7 +577,7 @@ const LocalDB = {
   },
   async leaderboard(t, week) {
     const s = this.who(t); const d = this.db();
-    const rows = this.weekRows(d, week).map((r, i) => ({ ...r, rank: i + 1 }));
+    const rows = this.weekRows(d, week);
     const me = rows.find(r => r.id === s.id) || { rank: rows.length + 1, total: 0 };
     return { mode: d.settings.leaderboard_mode, rows, me: { rank: me.rank, total: me.total }, count: rows.length };
   },
@@ -581,7 +588,7 @@ const LocalDB = {
   },
   async adminData(t, week, date) {
     const d = this.db();
-    const rows = this.weekRows(d, week).map((r, i) => ({ ...r, rank: i + 1 }));
+    const rows = this.weekRows(d, week);
     const present = d.entries.filter(e => e.date === date && calcDone(e.tasks, d.settings) > 0).map(e => e.student_id);
     return {
       settings: d.settings,
@@ -596,10 +603,16 @@ const LocalDB = {
     const d = this.db();
     let r = d.scores.find(x => x.student_id === sid && x.week === week && x.kind === kind);
     if (!r) { r = { student_id: sid, week, kind, points: 0, note: "" }; d.scores.push(r); }
-    r.points = +pts || 0; r.note = note || "";
+    let v = +pts || 0;
+    if (kind === "penalty") v = -Math.abs(v);
+    r.points = v; r.note = note || "";
     this.put(d); return { ok: true };
   },
   async adminSaveSettings(t, s) { const d = this.db(); d.settings = { ...d.settings, ...s }; this.put(d); return d.settings; },
+  async adminChangePin(t, newPin) {
+    if (!/^\d{4,10}$/.test(newPin)) throw new Error("الرمز أرقام فقط (٤ خانات أو أكثر)");
+    const d = this.db(); d.admin_pin = newPin; this.put(d); return { ok: true };
+  },
   async adminUpdateStudent(t, id, patch) {
     const d = this.db(); const s = d.students.find(x => x.id === id);
     if (s) Object.assign(s, patch);
@@ -1336,15 +1349,18 @@ async function viewBoard(app) {
     const r = await DB.leaderboard(S.token, week);
     const box = $("#b-list");
     const mine = S.student ? S.student.id : null;
-    const show = r.mode === "full" ? r.rows : r.rows.slice(0, 3);
+    /* «أول ٣» تعني أول ثلاثة مراكز — كل المتساويات في المركز يظهرن معًا */
+    const show = r.mode === "full" ? r.rows : r.rows.filter(x => x.rank <= 3 && x.total > 0);
+    const tied = {}; r.rows.forEach(x => { tied[x.rank] = (tied[x.rank] || 0) + 1; });
     let html = show.map(x => `<div class="rank p${x.rank <= 3 ? x.rank : ""} ${x.id === mine ? "me" : ""}">
-        <span class="no">${x.rank}</span><span class="nm">${esc(x.name)}${x.id === mine ? " <span class='muted'>(أنتِ)</span>" : ""}</span>
+        <span class="no">${x.rank}</span><span class="nm">${esc(x.name)}${x.id === mine ? " <span class='muted'>(أنتِ)</span>" : ""}${
+          tied[x.rank] > 1 ? ` <span class="pill mute" style="font-size:.68rem">بالتساوي</span>` : ""}</span>
         <span class="pt tnum">${x.total}</span></div>`).join("");
     if (r.mode !== "full" && !show.some(x => x.id === mine)) {
       html += `<div class="hr"></div><div class="rank me"><span class="no">${r.me.rank}</span>
         <span class="nm">مركزك أنتِ</span><span class="pt tnum">${r.me.total}</span></div>`;
     }
-    if (!r.rows.length) html = `<p class="muted center">ما فيه درجات هذا الأسبوع بعد — كوني أول من يبدأ 🌱</p>`;
+    if (!show.length) html = `<p class="muted center">ما فيه درجات هذا الأسبوع بعد — كوني أول من يبدأ 🌱</p>`;
     box.innerHTML = html + `<p class="muted center" style="font-size:.78rem;margin-top:10px">${r.count} حافظة في الحلقة</p>`;
   } catch (e) { $("#b-list").innerHTML = `<p class="muted center">${esc(e.message)}</p>`; }
 }
@@ -1400,7 +1416,7 @@ async function viewMe(app) {
         </div>`;
       }).join("")}
     </div>
-    ${w.manual && w.manual.length ? `<div class="hr"></div>${w.manual.map(m => `<div class="between" style="font-size:.86rem"><span>${esc(kindName(m.kind))}</span><b class="tnum">${m.points}</b></div>`).join("")}` : ""}`;
+    ${w.manual && w.manual.length ? `<div class="hr"></div>${w.manual.map(m => `<div class="between" style="font-size:.86rem"><span>${esc(kindName(m.kind))}</span><b class="tnum" style="${(+m.points) < 0 ? "color:var(--rose)" : ""}">${m.points}</b></div>`).join("")}` : ""}`;
 
   $("#m-hist").innerHTML = `<div class="section-title">درجاتك أسبوعًا بعد أسبوع</div>` +
     (hist.length ? chartSVG(hist) : `<p class="muted center" style="font-size:.86rem">تظهر هنا بعد انتهاء أول أسبوع.</p>`);
@@ -1437,7 +1453,7 @@ function streakLabel(n) {
 }
 
 function kindName(k) {
-  return { major_review: "المراجعة الكبرى", exam: "درجة الاختبار", bonus: "بونص" }[k] || k;
+  return { major_review: "المراجعة الكبرى", exam: "درجة الاختبار", bonus: "بونص", penalty: "خصم" }[k] || k;
 }
 
 function chartSVG(hist) {
@@ -1574,12 +1590,19 @@ function adminToday(b, app) {
 /* ---------------- تبويب الدرجات ---------------- */
 function adminScores(b, app) {
   const d = A.data;
-  const val = (sid, kind) => { const r = d.scores.find(x => x.student_id === sid && x.kind === kind); return r ? r.points : ""; };
-  const kinds = [["major_review", "المراجعة الكبرى"], ["exam", "الاختبار"], ["bonus", "بونص"]];
+  /* الخصم مخزَّن سالبًا — يُعرض للمشرفة موجبًا وتكتبه موجبًا */
+  const val = (sid, kind) => {
+    const r = d.scores.find(x => x.student_id === sid && x.kind === kind);
+    if (!r || r.points === 0) return "";
+    return kind === "penalty" ? Math.abs(r.points) : r.points;
+  };
+  const kinds = [["major_review", "المراجعة الكبرى"], ["exam", "الاختبار"],
+                 ["bonus", "بونص"], ["penalty", "خصم −"]];
   b.innerHTML = weekBar(app, "sc") + `
     <div class="panel" style="margin-bottom:12px">
       <div class="section-title">إدخال الدرجات اليدوية</div>
-      <p class="muted" style="font-size:.83rem">درجات المهام اليومية تُحتسب تلقائيًا. اكتبي هنا درجة المراجعة الكبرى، والاختبار الأسبوعي، وأي بونص — تُحفظ فور الكتابة.</p>
+      <p class="muted" style="font-size:.83rem">درجات المهام اليومية تُحتسب تلقائيًا. اكتبي هنا درجة المراجعة الكبرى، والاختبار الأسبوعي، وأي بونص أو خصم — تُحفظ فور الكتابة.</p>
+      <p class="muted" style="font-size:.8rem;margin-top:6px">في خانة <b>الخصم</b> اكتبي الرقم موجبًا (مثلاً <b>5</b>) والنظام يطرحه من المجموع.</p>
     </div>
     ${d.rows.length ? d.rows.map(r => `<div class="srow" data-sid="${r.id}">
       <div class="between">
@@ -1588,7 +1611,7 @@ function adminScores(b, app) {
       </div>
       <div class="muted tnum" style="font-size:.78rem;margin-top:2px">مهام يومية: ${r.auto}</div>
       <div class="sgrid">
-        ${kinds.map(([k, t]) => `<label>${t}<input type="number" step="0.5" data-kind="${k}" value="${val(r.id, k)}"></label>`).join("")}
+        ${kinds.map(([k, t]) => `<label class="${k === "penalty" ? "pen" : ""}">${t}<input type="number" step="0.5" min="0" data-kind="${k}" value="${val(r.id, k)}"></label>`).join("")}
       </div>
     </div>`).join("") : `<div class="panel center muted">ما فيه حافظات مسجّلات بعد.</div>`}`;
   bindWeek(app, "sc");
@@ -1599,10 +1622,16 @@ function adminScores(b, app) {
         await DB.adminSetScore(S.admin, sid, A.week, inp.getAttribute("data-kind"), inp.value === "" ? 0 : +inp.value, "");
         const row = A.data.rows.find(r => r.id === sid);
         let manual = 0;
-        card.querySelectorAll("input").forEach(i => manual += (+i.value || 0));
+        card.querySelectorAll("input").forEach(i => {
+          const v = +i.value || 0;
+          manual += i.getAttribute("data-kind") === "penalty" ? -Math.abs(v) : v;
+        });
         row.manual = manual; row.total = row.auto + manual;
-        card.querySelector("[data-total]").textContent = row.total + " درجة";
-        toast("تم الحفظ");
+        const tot = card.querySelector("[data-total]");
+        tot.textContent = row.total + " درجة";
+        tot.className = "pill tnum " + (row.total < 0 ? "rose" : "leaf");
+        toast(inp.getAttribute("data-kind") === "penalty" && (+inp.value || 0) > 0
+          ? `تم خصم ${Math.abs(+inp.value)} درجات` : "تم الحفظ");
       } catch (e) { toast(e.message); }
     };
   });
@@ -1611,19 +1640,20 @@ function adminScores(b, app) {
 /* ---------------- تبويب المتصدرات ---------------- */
 function adminBoard(b, app) {
   const d = A.data;
-  const rows = [...d.rows].sort((x, y) => y.total - x.total);
+  const rows = [...d.rows].sort((x, y) => (x.rank - y.rank) || x.name.localeCompare(y.name, "ar"));
+  const tied = {}; rows.forEach(x => { tied[x.rank] = (tied[x.rank] || 0) + 1; });
   b.innerHTML = weekBar(app, "bd") + `
     <div class="panel between" style="margin-bottom:12px">
       <div><b style="font-family:var(--f-display)">طريقة عرض المتصدرات للحافظات</b>
         <div class="muted" style="font-size:.78rem">تنطبق فورًا على صفحة المتصدرات</div></div>
       <select id="a-mode" style="width:auto">
-        <option value="top3" ${d.settings.leaderboard_mode === "top3" ? "selected" : ""}>أول ٣ فقط + مركز كل حافظة</option>
+        <option value="top3" ${d.settings.leaderboard_mode === "top3" ? "selected" : ""}>أول ٣ مراكز + مركز كل حافظة</option>
         <option value="full" ${d.settings.leaderboard_mode === "full" ? "selected" : ""}>القائمة كاملة بالأسماء</option>
       </select>
     </div>
     <div class="panel" style="margin-bottom:12px">
-      ${rows.length ? rows.map((r, i) => `<div class="rank p${i < 3 ? i + 1 : ""}">
-        <span class="no">${i + 1}</span><span class="nm">${esc(r.name)}</span>
+      ${rows.length ? rows.map(r => `<div class="rank p${r.rank <= 3 ? r.rank : ""}">
+        <span class="no">${r.rank}</span><span class="nm">${esc(r.name)}${tied[r.rank] > 1 ? ` <span class="pill mute" style="font-size:.68rem">بالتساوي</span>` : ""}</span>
         <span class="muted tnum" style="font-size:.78rem">${r.auto}+${r.manual}</span>
         <span class="pt tnum">${r.total}</span></div>`).join("") : `<p class="muted center">لا توجد درجات هذا الأسبوع.</p>`}
     </div>
@@ -1786,7 +1816,27 @@ function adminSettings(b, app) {
       <div id="s-tasks" class="stack"></div>
       <button class="btn ghost sm" id="s-add">＋ إضافة مهمة</button>
     </div>
+    <div class="panel stack" style="margin-bottom:12px">
+      <div class="section-title">رمز المشرفة</div>
+      <p class="muted" style="font-size:.82rem">الرمز اللي تدخلين فيه لوحة المشرفات. غيّريه متى ما حبيتِ — يُحفظ مشفّرًا.</p>
+      <div class="grid2">
+        <label class="field">الرمز الجديد<input type="password" id="s-apin" inputmode="numeric" placeholder="٤ أرقام أو أكثر"></label>
+        <label class="field">تأكيد الرمز<input type="password" id="s-apin2" inputmode="numeric"></label>
+      </div>
+      <button class="btn ghost wide" id="s-apin-do">تغيير رمز المشرفة</button>
+    </div>
     <button class="btn wide" id="s-save">حفظ الإعدادات</button>`;
+
+  $("#s-apin-do").onclick = async () => {
+    const a = $("#s-apin").value.trim(), c = $("#s-apin2").value.trim();
+    if (!/^\d{4,10}$/.test(a)) return toast("الرمز أرقام فقط (٤ خانات أو أكثر)");
+    if (a !== c) return toast("الرمزان غير متطابقين");
+    try {
+      await DB.adminChangePin(S.admin, a);
+      $("#s-apin").value = ""; $("#s-apin2").value = "";
+      toast("تم تغيير رمز المشرفة 🌿 احفظيه عندك", 4500);
+    } catch (e) { toast(e.message); }
+  };
 
   let tasks = JSON.parse(JSON.stringify(st.tasks));
   const drawT = () => {
