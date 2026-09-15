@@ -301,6 +301,10 @@ td input[type=number]{width:74px; padding:5px 7px}
 .stat .v{font-family:var(--f-display); font-size:1.5rem}
 .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:9px}
 
+.note-priv{
+  background:var(--surface-2); border:1px solid var(--line); border-inline-start:4px solid var(--rose);
+  border-radius:var(--r-s); padding:10px 12px; font-size:.82rem; line-height:1.7; margin-top:10px;
+}
 .note-demo{
   background:var(--grain-soft); border:1px solid color-mix(in srgb,var(--grain) 40%, transparent);
   color:color-mix(in srgb,var(--grain) 75%, var(--ink)); border-radius:var(--r-s);
@@ -544,9 +548,10 @@ const LocalDB = {
       const count = e ? calcDone(e.tasks, d.settings) : 0;
       days.push({ date: ds, count, points: e ? e.auto_points : 0 });
     }
-    const manual = d.scores.filter(x => x.student_id === s.id && x.week === week);
+    const all = d.scores.filter(x => x.student_id === s.id && x.week === week);
+    const manual = all.filter(x => x.kind !== "penalty");   /* التصحيح مخفي عن الحافظة */
     const auto = days.reduce((a, b) => a + b.points, 0);
-    const mtot = manual.reduce((a, b) => a + (+b.points || 0), 0);
+    const mtot = all.reduce((a, b) => a + (+b.points || 0), 0);
     return { days, auto, manual, manual_total: mtot, total: auto + mtot, streak: this.calcStreak(d, s.id) };
   },
   calcStreak(d, sid) {
@@ -1453,7 +1458,7 @@ function streakLabel(n) {
 }
 
 function kindName(k) {
-  return { major_review: "المراجعة الكبرى", exam: "درجة الاختبار", bonus: "بونص", penalty: "خصم" }[k] || k;
+  return { major_review: "المراجعة الكبرى", exam: "درجة الاختبار", bonus: "بونص", penalty: "تصحيح" }[k] || k;
 }
 
 function chartSVG(hist) {
@@ -1597,12 +1602,15 @@ function adminScores(b, app) {
     return kind === "penalty" ? Math.abs(r.points) : r.points;
   };
   const kinds = [["major_review", "المراجعة الكبرى"], ["exam", "الاختبار"],
-                 ["bonus", "بونص"], ["penalty", "خصم −"]];
+                 ["bonus", "بونص"], ["penalty", "تصحيح −"]];
   b.innerHTML = weekBar(app, "sc") + `
     <div class="panel" style="margin-bottom:12px">
       <div class="section-title">إدخال الدرجات اليدوية</div>
-      <p class="muted" style="font-size:.83rem">درجات المهام اليومية تُحتسب تلقائيًا. اكتبي هنا درجة المراجعة الكبرى، والاختبار الأسبوعي، وأي بونص أو خصم — تُحفظ فور الكتابة.</p>
-      <p class="muted" style="font-size:.8rem;margin-top:6px">في خانة <b>الخصم</b> اكتبي الرقم موجبًا (مثلاً <b>5</b>) والنظام يطرحه من المجموع.</p>
+      <p class="muted" style="font-size:.83rem">درجات المهام اليومية تُحتسب تلقائيًا. اكتبي هنا درجة المراجعة الكبرى، والاختبار الأسبوعي، وأي بونص — تُحفظ فور الكتابة.</p>
+      <div class="note-priv">
+        <b>خانة التصحيح −</b> لتصحيح إدخال مكرر أو خاطئ. اكتبي الرقم موجبًا (مثلاً <b>5</b>) والنظام يطرحه من المجموع.
+        <br>هذي الخانة <b>لا تظهر للحافظة إطلاقًا</b> — تشوف مجموعها مصحّحًا وبس، بدون أي إشارة لتعديل.
+      </div>
     </div>
     ${d.rows.length ? d.rows.map(r => `<div class="srow" data-sid="${r.id}">
       <div class="between">
@@ -1631,7 +1639,7 @@ function adminScores(b, app) {
         tot.textContent = row.total + " درجة";
         tot.className = "pill tnum " + (row.total < 0 ? "rose" : "leaf");
         toast(inp.getAttribute("data-kind") === "penalty" && (+inp.value || 0) > 0
-          ? `تم خصم ${Math.abs(+inp.value)} درجات` : "تم الحفظ");
+          ? `تم التصحيح (−${Math.abs(+inp.value)}) — لا يظهر للحافظة` : "تم الحفظ");
       } catch (e) { toast(e.message); }
     };
   });
@@ -1672,14 +1680,14 @@ async function exportWeek() {
   try {
     await loadXLSX();
     const d = A.data;
-    const head = ["الحافظة", "كمية المراجعة", "درجات المهام", "المراجعة الكبرى", "الاختبار", "بونص", "المجموع"];
+    const head = ["الحافظة", "كمية المراجعة", "درجات المهام", "المراجعة الكبرى", "الاختبار", "بونص", "تصحيح", "المجموع"];
     const get = (sid, k) => { const r = d.scores.find(x => x.student_id === sid && x.kind === k); return r ? +r.points : 0; };
     const body = [...d.rows].sort((a, b) => b.total - a.total).map(r => {
       const s = d.students.find(x => x.id === r.id) || {};
-      return [r.name, s.review_amount || "", r.auto, get(r.id, "major_review"), get(r.id, "exam"), get(r.id, "bonus"), r.total];
+      return [r.name, s.review_amount || "", r.auto, get(r.id, "major_review"), get(r.id, "exam"), get(r.id, "bonus"), get(r.id, "penalty"), r.total];
     });
     const ws = XLSX.utils.aoa_to_sheet([[`أسبوع ${A.week} — ${S.settings.course_name}`], [], head, ...body]);
-    ws["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+    ws["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "نتائج الأسبوع");
     const info = XLSX.utils.aoa_to_sheet([["الاسم", "كمية المراجعة", "عنوان السكن", "الواتساب", "تاريخ التسجيل"],
@@ -1704,10 +1712,10 @@ async function exportWeekCSV() {
   const lines = [];
   lines.push([q(`أسبوع ${A.week} — ${S.settings.course_name}`)].join(","));
   lines.push("");
-  lines.push(["الحافظة", "كمية المراجعة", "درجات المهام", "المراجعة الكبرى", "الاختبار", "بونص", "المجموع"].map(q).join(","));
+  lines.push(["الحافظة", "كمية المراجعة", "درجات المهام", "المراجعة الكبرى", "الاختبار", "بونص", "تصحيح", "المجموع"].map(q).join(","));
   [...d.rows].sort((a, b) => b.total - a.total).forEach(r => {
     const s = d.students.find(x => x.id === r.id) || {};
-    lines.push([r.name, s.review_amount || "", r.auto, get(r.id, "major_review"), get(r.id, "exam"), get(r.id, "bonus"), r.total].map(q).join(","));
+    lines.push([r.name, s.review_amount || "", r.auto, get(r.id, "major_review"), get(r.id, "exam"), get(r.id, "bonus"), get(r.id, "penalty"), r.total].map(q).join(","));
   });
   lines.push(""); lines.push([q("بيانات الحافظات")].join(","));
   lines.push(["الاسم", "كمية المراجعة", "عنوان السكن", "الواتساب", "تاريخ التسجيل"].map(q).join(","));
