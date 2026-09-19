@@ -301,6 +301,37 @@ td input[type=number]{width:74px; padding:5px 7px}
 .stat .v{font-family:var(--f-display); font-size:1.5rem}
 .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:9px}
 
+.winbar{
+  margin-top:10px; padding:8px 11px; border-radius:var(--r-s);
+  background:var(--grain-soft); color:color-mix(in srgb, var(--grain) 72%, var(--ink));
+  font-size:.8rem; line-height:1.7;
+}
+.winbar.late{
+  background:var(--rose-soft, var(--surface-2)); color:var(--rose);
+  border:1px solid color-mix(in srgb, var(--rose) 28%, transparent);
+}
+.note-day{
+  background:var(--leaf-soft); color:var(--leaf); border-radius:var(--r-s);
+  padding:9px 12px; font-size:.82rem; line-height:1.7; margin-bottom:12px;
+}
+/* شريط اختيار اليوم (الرزنامة المصغّرة) */
+.daypick{
+  display:flex; gap:7px; margin-top:12px; overflow-x:auto;
+  padding-bottom:4px; scrollbar-width:none;
+}
+.daypick::-webkit-scrollbar{ display:none; }
+.dchip{
+  flex:0 0 auto; min-width:72px; border:1.5px solid var(--line); background:var(--surface-2);
+  border-radius:var(--r-s); padding:7px 9px; text-align:center; cursor:pointer;
+  display:grid; gap:1px; font:inherit; color:var(--ink-2); transition:.15s;
+}
+.dchip b{ font-size:.8rem; font-weight:600; color:var(--ink); }
+.dchip i{ font-style:normal; font-size:.7rem; font-variant-numeric:tabular-nums; }
+.dchip u{ text-decoration:none; font-size:.64rem; opacity:.75; }
+.dchip.on{
+  border-color:var(--leaf); background:var(--leaf-soft);
+}
+.dchip.on b, .dchip.on u{ color:var(--leaf); }
 .note-priv{
   background:var(--surface-2); border:1px solid var(--line); border-inline-start:4px solid var(--rose);
   border-radius:var(--r-s); padding:10px 12px; font-size:.82rem; line-height:1.7; margin-top:10px;
@@ -337,6 +368,9 @@ const DEFAULT_SETTINGS = {
   exam_days: [6],
   leaderboard_mode: "top3",
   supervisor_whatsapp: "",
+  entry_start_hour: 17,
+  extended_windows: { "4": { until_dow: 5, until_hour: 22 } },
+  day_only_tasks: { "4": ["cumulative"] },
   tasks: [
     { key: "self",       title: "السرد الذاتي",         hint: "تسجيل صوتي أو كتابة بورقة", mode: "check",   required: true },
     { key: "partner",    title: "السرد على الرفيقة",     hint: "دون أخطاء، وإذا حصل خطأ يُعاد الوجه الذي حصل فيه الخطأ من بدايته", mode: "check" },
@@ -362,6 +396,55 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": 
 
 function todayStr() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuwait" }).format(new Date());
+}
+
+/* الوقت الحالي بتوقيت الكويت */
+function kwNow() {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuwait", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(new Date());
+  const g = t => p.find(x => x.type === t).value;
+  const date = `${g("year")}-${g("month")}-${g("day")}`;
+  return { date, hour: +g("hour"), minute: +g("minute"), dow: dowOf(date) };
+}
+
+/* «يوم البرنامج» الحالي: النافذة تبدأ ٥ مساءً وتمتد ٢٤ ساعة،
+   والخميس يمتد إلى الجمعة ١٠ مساءً. تُرجع تاريخ اليوم المفتوح للإدخال. */
+function programDay(st) {
+  st = st || DEFAULT_SETTINGS;
+  const n = kwNow(), start = +st.entry_start_hour || 17;
+  const prev = shiftDate(n.date, -1);
+  const ext = st.extended_windows || {};
+  for (const d in ext) {
+    const c = ext[d];
+    if (n.dow === +c.until_dow && dowOf(prev) === +d && n.hour < +c.until_hour) return prev;
+  }
+  return n.hour >= start ? n.date : prev;
+}
+
+/* متى تُقفل نافذة يوم البرنامج الحالي؟ */
+function windowCloses(st, pd) {
+  st = st || DEFAULT_SETTINGS;
+  const start = +st.entry_start_hour || 17;
+  const ext = (st.extended_windows || {})[dowOf(pd)];
+  if (ext) return { date: shiftDate(pd, 1), hour: +ext.until_hour, minute: 0 };
+  return { date: shiftDate(pd, 1), hour: start, minute: -1 };
+}
+
+/* المهام المسموحة في يوم معيّن */
+function tasksForDay(st, pd) {
+  const only = (st.day_only_tasks || {})[dowOf(pd)];
+  if (!only || !only.length) return st.tasks;
+  return st.tasks.filter(t => only.includes(t.key));
+}
+
+function fmtHour(h, m) {
+  const ar = ["صفر","١","٢","٣","٤","٥","٦","٧","٨","٩","١٠","١١","١٢"];
+  let hh = h % 12; if (hh === 0) hh = 12;
+  const part = h < 12 ? "صباحًا" : "مساءً";
+  const mm = (m == null || m < 0) ? "" : (m === 0 ? "" : ":" + String(m).padStart(2, "0"));
+  return `${ar[hh]}${mm} ${part}`;
 }
 function dowOf(ds) { return new Date(ds + "T00:00:00Z").getUTCDay(); }
 function shiftDate(ds, n) {
@@ -516,17 +599,28 @@ const LocalDB = {
   async getDay(t, date) {
     const s = this.who(t); const d = this.db();
     const e = d.entries.find(x => x.student_id === s.id && x.date === date);
-    return e ? { tasks: e.tasks, note: e.note || "", auto_points: e.auto_points } : { tasks: {}, note: "", auto_points: 0 };
+    return e ? { tasks: e.tasks, note: e.note || "", auto_points: e.auto_points, late: !!e.late }
+             : { tasks: {}, note: "", auto_points: 0, late: false };
   },
   calcPoints(tasks, settings) { return calcPoints(tasks, settings); },
   async saveDay(t, date, tasks, note) {
     const s = this.who(t); const d = this.db();
-    const pts = this.calcPoints(tasks, d.settings);
+    const st = d.settings;
+    const open = programDay(st);
+    if (!st.task_days.includes(dowOf(date))) throw new Error("هذا اليوم ليس يوم مهام");
+    if (date > open) throw new Error("لم يبدأ إدخال مهام هذا اليوم بعد — يبدأ الساعة " + fmtHour(+st.entry_start_hour || 17, 0));
+    if (!openDays(st).includes(date)) throw new Error("انتهت مهلة التسجيل لهذا اليوم، راجعي المشرفة");
+    const allowed = tasksForDay(st, date).map(x => x.key);
+    for (const k in tasks) {
+      if (tasks[k] && !allowed.includes(k)) throw new Error("هذه المهمة غير متاحة في هذا اليوم");
+    }
+    const pts = this.calcPoints(tasks, st);
     let e = d.entries.find(x => x.student_id === s.id && x.date === date);
-    if (!e) { e = { student_id: s.id, date, tasks: {}, note: "", auto_points: 0 }; d.entries.push(e); }
+    if (!e) { e = { student_id: s.id, date, tasks: {}, note: "", auto_points: 0, late: false }; d.entries.push(e); }
     e.tasks = tasks; e.note = note || ""; e.auto_points = pts;
+    if (date !== open) e.late = true;
     this.put(d);
-    return { auto_points: pts };
+    return { auto_points: pts, late: !!e.late };
   },
   weekRows(d, week) {
     const days = []; for (let i = 0; i < 7; i++) days.push(shiftDate(week, i));
@@ -546,7 +640,7 @@ const LocalDB = {
       const ds = shiftDate(week, i);
       const e = d.entries.find(x => x.student_id === s.id && x.date === ds);
       const count = e ? calcDone(e.tasks, d.settings) : 0;
-      days.push({ date: ds, count, points: e ? e.auto_points : 0 });
+      days.push({ date: ds, count, points: e ? e.auto_points : 0, late: !!(e && e.late) });
     }
     const all = d.scores.filter(x => x.student_id === s.id && x.week === week);
     const manual = all.filter(x => x.kind !== "penalty");   /* التصحيح مخفي عن الحافظة */
@@ -555,7 +649,7 @@ const LocalDB = {
     return { days, auto, manual, manual_total: mtot, total: auto + mtot, streak: this.calcStreak(d, s.id) };
   },
   calcStreak(d, sid) {
-    let n = 0, ds = todayStr();
+    let n = 0, ds = programDay(d.settings);
     for (let i = 0; i < 120; i++) {
       const dow = dowOf(ds);
       if (!d.settings.task_days.includes(dow)) { ds = shiftDate(ds, -1); continue; }
@@ -601,7 +695,10 @@ const LocalDB = {
       rows,
       scores: d.scores.filter(x => x.week === week),
       present,
-      day_entries: d.entries.filter(e => e.date === date)
+      day_entries: d.entries.filter(e => e.date === date).map(e => ({
+        student_id: e.student_id, note: e.note || "", late: !!e.late,
+        count: calcDone(e.tasks, d.settings), points: e.auto_points || 0
+      }))
     };
   },
   async adminSetScore(t, sid, week, kind, pts, note) {
@@ -932,65 +1029,115 @@ function viewRegister(app) {
 /* ---------------- صفحة اليوم ---------------- */
 let dayState = { tasks: {}, note: "", saving: false };
 
+/* متى يُفتح الإدخال القادم؟ */
+function nextOpening(st) {
+  const n = kwNow(), start = +st.entry_start_hour || 17;
+  if (n.hour < start && st.task_days.includes(n.dow)) return n.date;
+  for (let i = 1; i <= 7; i++) {
+    const d = shiftDate(n.date, i);
+    if (st.task_days.includes(dowOf(d))) return d;
+  }
+  return null;
+}
+
+/* الإعدادات مع مهام اليوم المسموحة فقط */
+function curSettings() {
+  return Object.assign({}, S.settings, { tasks: S.dayTasks || S.settings.tasks });
+}
+
+/* الأيام التي تقدر الحافظة تسجّل فيها: اليوم المفتوح، ومعه أيام المهام السابقة
+   ضمن مهلة التسجيل المتأخر. الأول في القائمة هو اليوم المفتوح أو أقرب يوم له. */
+function openDays(st) {
+  const open = programDay(st);
+  const back = Math.max(0, +st.backfill_days || 0);
+  const out = [];
+  if (st.task_days.includes(dowOf(open))) out.push(open);
+  let d = open, past = 0, guard = 0;
+  while (past < back && guard++ < 30) {
+    d = shiftDate(d, -1);
+    if (st.task_days.includes(dowOf(d))) { out.push(d); past++; }
+  }
+  return out;
+}
+
+/* هل هذا التسجيل متأخر؟ (خارج نافذة يومه) */
+function isLateDate(st, ds) { return ds !== programDay(st); }
+
 async function viewToday(app) {
-  const st = S.settings, date = S.date, dow = dowOf(date);
-  const isRest = st.rest_days.includes(dow);
-  const isExam = st.exam_days.includes(dow);
-  const isTask = st.task_days.includes(dow);
-  const today = todayStr();
-  const tooOld = date < shiftDate(today, -(st.backfill_days || 3));
-  const future = date > today;
-  const locked = tooOld || future;
+  const st = S.settings;
+  const open = programDay(st);
+  const days = openDays(st);
+  const openIsTask = st.task_days.includes(dowOf(open));
+  if (!days.includes(S.date)) { S.date = days[0] || open; S.picked = false; }
+  const isTask = openIsTask || !!S.picked;
+  const sel = S.date, sdow = dowOf(sel);
+  const late = isTask && sel !== open;
+  const close = windowCloses(st, sel);
+  const n = kwNow(), startH = +st.entry_start_hour || 17;
+  const soon = n.hour < startH && st.task_days.includes(n.dow) && n.date !== open;
+  S.dayTasks = isTask ? tasksForDay(st, sel) : st.tasks;
+  const limited = isTask && S.dayTasks.length < st.tasks.length;
+
+  const chips = days.map(d => `<button type="button" class="dchip${(isTask && d === sel) ? " on" : ""}" data-day="${d}">
+      <b>${AR_DAYS[dowOf(d)]}</b><i>${arShort(d)}</i>
+      <u>${d === open ? "مفتوح" : "متأخر"}</u></button>`).join("");
 
   app.innerHTML = `${header(`<span class="badge-top">${esc(S.student ? S.student.name.split(" ")[0] : "")}</span>`)}
   <div class="wrap stack">
     ${demoBanner()}
     <div class="panel">
-      <div class="between" style="align-items:flex-end;gap:12px">
-        <label class="field" style="flex:1">اليوم والتاريخ
-          <input type="date" id="d-date" value="${date}" max="${today}"></label>
-        <div class="center" style="padding-bottom:6px"><span class="pill leaf" id="d-daylabel">${AR_DAYS[dow]}</span></div>
+      <div class="between" style="align-items:flex-start;gap:10px">
+        <div>
+          <div class="muted" style="font-size:.76rem">مهام يوم</div>
+          <div style="font-family:var(--f-display);font-weight:700;font-size:1.14rem;line-height:1.5">${esc(arDate(isTask ? sel : open))}</div>
+        </div>
+        <span class="pill ${isTask ? (late ? "grain" : "leaf") : "mute"}">${late ? "متأخر" : AR_DAYS[isTask ? sdow : dowOf(open)]}</span>
       </div>
+      ${days.length ? `<div class="daypick">${chips}</div>` : ""}
+      ${isTask ? (late
+        ? `<div class="winbar late">⏳ <b>تسجيل متأخر</b> — انتهى وقت هذا اليوم. إدخالك بينحسب لج كامل، بس بيظهر لك وللمشرفة بوسم «متأخر».</div>`
+        : `<div class="winbar">⏳ الإدخال مفتوح حتى <b>${fmtHour(close.hour, close.minute)}</b> يوم ${esc(AR_DAYS[dowOf(close.date)])}</div>`) : ""}
+      ${soon ? `<div class="note-day">مهام يوم <b>${esc(AR_DAYS[n.dow])}</b> تفتح الساعة <b>${fmtHour(startH, 0)}</b>.</div>` : ""}
       <div class="growth" id="d-growth"></div>
     </div>
     <div id="d-main"></div>
   </div>${nav("today")}`;
 
-  $("#d-date").onchange = e => { S.date = e.target.value || today; viewToday(app); };
+  app.querySelectorAll(".dchip").forEach(b => {
+    b.onclick = () => { S.date = b.dataset.day; S.picked = true; viewToday(app); };
+  });
 
   const main = $("#d-main");
   dayState = { tasks: {}, note: "", saving: false };
-  if (locked) {
+
+  if (!isTask) {
+    const odow = dowOf(open);
+    const nx = nextOpening(st);
+    const rest = st.rest_days.includes(odow), exam = st.exam_days.includes(odow);
     main.innerHTML = `<div class="panel center stack">
-      <div style="font-size:2rem">🕰️</div>
-      <h3>${future ? "هذا يوم لم يأتِ بعد" : "انتهت مهلة التسجيل لهذا اليوم"}</h3>
-      <p class="muted" style="font-size:.88rem">${future ? "اختاري تاريخ اليوم أو يومًا مضى." : `تقدرين تسجّلين بأثر رجعي حتى ${st.backfill_days} أيام. للتعديل بعدها راجعي المشرفة.`}</p>
+      <div style="font-size:2rem">${rest ? "🤍" : exam ? "📝" : "🕰️"}</div>
+      <h3>${rest ? "يوم راحة" : exam ? "يوم الاختبار" : "الإدخال مغلق الآن"}</h3>
+      <p class="muted" style="font-size:.9rem;line-height:2">
+        يبدأ إدخال المهام اليومية الساعة <b>${fmtHour(startH, 0)}</b>.
+        ${nx ? `<br>الفتح القادم: مهام يوم <b>${esc(AR_DAYS[dowOf(nx)])}</b>` : ""}
+        ${rest ? "<br>اجعليه يوم تلاوة هادئة وسورة الكهف." : ""}
+        ${exam ? "<br>درجة الاختبار تضيفها المشرفة وتظهر في مجموع أسبوعك." : ""}
+      ${days.length ? `<br>وتقدرين تكمّلين يومًا فايتًا من الأيام فوق — بيتوسّم «متأخر».` : ""}
+      </p>
+      <button class="btn ghost" data-go="board">شوفي ترتيب هذا الأسبوع</button>
     </div>`;
-    paintGrowth(0, 0); return;
-  }
-  if (isRest) {
-    main.innerHTML = `<div class="panel center stack">
-      <div style="font-size:2rem">🤍</div><h3>يوم راحة</h3>
-      <p class="muted" style="font-size:.88rem">لا مهام اليوم. اجعليه يوم تلاوة هادئة وسورة الكهف.</p>
-      <button class="btn ghost" id="go-yest">تسجيل يوم أمس</button></div>`;
-    $("#go-yest").onclick = () => { S.date = shiftDate(date, -1); viewToday(app); };
-    paintGrowth(0, 0); return;
-  }
-  if (isExam && !isTask) {
-    main.innerHTML = `<div class="panel center stack">
-      <div style="font-size:2rem">📝</div><h3>يوم الاختبار</h3>
-      <p class="muted" style="font-size:.88rem">درجة الاختبار تضيفها المشرفة، وتظهر في مجموع أسبوعك وفي صفحة المتصدرات.</p>
-      <button class="btn ghost" data-go="board">شوفي ترتيب هذا الأسبوع</button></div>`;
-    paintGrowth(0, 0); return;
+    paintGrowth(0, 0);
+    return;
   }
 
   let saved;
-  try { saved = await DB.getDay(S.token, date); } catch (e) { toast(e.message); saved = { tasks: {}, note: "" }; }
+  try { saved = await DB.getDay(S.token, sel); } catch (e) { toast(e.message); saved = { tasks: {}, note: "" }; }
   dayState = { tasks: saved.tasks || {}, note: saved.note || "", saving: false };
 
   main.innerHTML = `
     <div class="panel" style="margin-bottom:14px">
-      <div class="section-title">مهام اليوم</div>
+      <div class="section-title">مهام ${esc(AR_DAYS[sdow])} ${late ? '<span class="pill grain">متأخر</span>' : ""}</div>
+      ${limited ? `<div class="note-day">يوم <b>${esc(AR_DAYS[sdow])}</b> — المتاح فيه ${S.dayTasks.length === 1 ? "مهمة واحدة" : S.dayTasks.length + " مهام"} فقط، وباقي المهام مقفلة.</div>` : ""}
       <div class="tasks" id="d-tasks"></div>
       <label class="field" style="margin-top:6px">ملاحظة لليوم <span class="muted">(اختياري — تصل للمشرفة)</span>
         <textarea id="d-note" placeholder="كم وجهًا سردتِ؟ وش صعب عليكِ؟">${esc(dayState.note)}</textarea></label>
@@ -1003,7 +1150,7 @@ async function viewToday(app) {
 }
 
 function drawTasks() {
-  const st = S.settings, box = $("#d-tasks");
+  const st = curSettings(), box = $("#d-tasks");
   if (!box) return;
   box.innerHTML = "";
   st.tasks.forEach((t, i) => {
@@ -1040,19 +1187,25 @@ function drawTasks() {
   paintGrowth(done, total);
 }
 
+/* نموّ النبتة يُحسب على المهام التي تخصّ الجميع — المراجعة الكبرى
+   درجتها من المشرفة وليست مطلوبة من كل الحافظات، فلا تدخل في النموّ.
+   يعني النبتة تكتمل باكتمال السرد التراكمي. */
 function progress() {
-  return { done: calcDone(dayState.tasks, S.settings), total: S.settings.tasks.length };
+  const st = curSettings();
+  const core = st.tasks.filter(t => !t.manual);
+  const done = core.filter(t => taskDone(t, dayState.tasks[t.key])).length;
+  return { done, total: core.length };
 }
 
 function paintGrowth(done, total) {
   const g = $("#d-growth"); if (!g) return;
   const r = total ? done / total : 0;
   const stage = STAGES[Math.min(STAGES.length - 1, Math.round(r * (STAGES.length - 1)))];
-  const pts = calcPoints(dayState.tasks, S.settings);
+  const pts = calcPoints(dayState.tasks, curSettings());
   g.innerHTML = `${plantSVG(done, total)}
     <div class="growth-txt" style="flex:1">
       <div class="stage">${esc(stage)}</div>
-      <div class="count tnum">${done} من ${total} مهام · ${pts} درجة اليوم</div>
+      <div class="count tnum">${total ? `${done} من ${total} ${total === 1 ? "مهمة" : "مهام"} · ${pts} درجة` : "يوم بلا مهام"}</div>
       <div class="gbar"><i style="width:${(r * 100).toFixed(0)}%"></i></div>
     </div>`;
 }
@@ -1181,7 +1334,7 @@ function roundRect(ctx, x, y, w, h, r) {
 
 async function buildCardCanvas() {
   try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) { }
-  const st = S.settings, { done, total } = progress();
+  const st = curSettings(), { done, total } = progress();
   const pts = calcPoints(dayState.tasks, st);
   const stage = STAGES[Math.min(STAGES.length - 1, Math.round((total ? done / total : 0) * (STAGES.length - 1)))];
   const C = {
@@ -1417,10 +1570,11 @@ async function viewMe(app) {
           <div style="height:44px;border-radius:10px;display:grid;place-items:center;font-size:1.1rem;margin-top:4px;
             background:${on ? "var(--leaf-soft)" : "var(--surface-2)"};border:1.5px solid ${on ? "var(--leaf)" : "var(--line)"}">
             ${on ? "🌿" : rest ? "🤍" : exam ? "📝" : "·"}</div>
-          <div class="tnum" style="font-size:.72rem;color:var(--ink-2);margin-top:3px">${d.points || ""}</div>
+          <div class="tnum" style="font-size:.72rem;color:var(--ink-2);margin-top:3px">${d.late ? "⏳" : ""}${d.points || ""}</div>
         </div>`;
       }).join("")}
     </div>
+    ${w.days.some(d => d.late) ? `<div class="muted" style="font-size:.74rem;margin-top:8px;text-align:center">⏳ = تسجيل متأخر (انحسب لك، لكنه خارج وقته)</div>` : ""}
     ${w.manual && w.manual.length ? `<div class="hr"></div>${w.manual.map(m => `<div class="between" style="font-size:.86rem"><span>${esc(kindName(m.kind))}</span><b class="tnum" style="${(+m.points) < 0 ? "color:var(--rose)" : ""}">${m.points}</b></div>`).join("")}` : ""}`;
 
   $("#m-hist").innerHTML = `<div class="section-title">درجاتك أسبوعًا بعد أسبوع</div>` +
@@ -1488,7 +1642,7 @@ const A = { week: null, date: null, tab: "today", data: null };
 async function viewAdmin(app) {
   if (!S.admin) return adminLoginView(app);
   A.week = A.week || weekStartOf(todayStr());
-  A.date = A.date || todayStr();
+  A.date = A.date || programDay(S.settings);
   app.innerHTML = `${header(`<span class="badge-top">لوحة المشرفات</span>`)}
     <div class="wrap stack">
       ${demoBanner()}
@@ -1564,17 +1718,39 @@ function adminToday(b, app) {
   const isTaskDay = st.task_days.includes(dow);
   const notes = (d.day_entries || []).filter(e => e.note);
   const nameOf = id => (d.students.find(s => s.id === id) || {}).name || "";
+  const lateIds = (d.day_entries || []).filter(e => e.late && (e.count || 0) > 0).map(e => e.student_id);
+  const lateSet = new Set(lateIds);
 
+  const pd = programDay(st);
+  const isNow = A.date === pd;
+  const close = windowCloses(st, pd);
   b.innerHTML = `
     <div class="panel" style="margin-bottom:12px">
-      <label class="field">اليوم المعروض<input type="date" id="a-date" value="${A.date}" max="${todayStr()}"></label>
-      <div class="muted" style="font-size:.82rem;margin-top:6px">${arDate(A.date)} ${isTaskDay ? "" : "— ليس يوم مهام"}</div>
+      <div class="between" style="align-items:flex-start;gap:10px">
+        <div>
+          <div class="muted" style="font-size:.76rem">حضور يوم</div>
+          <div style="font-family:var(--f-display);font-weight:700;font-size:1.1rem;line-height:1.5">${arDate(A.date)}</div>
+        </div>
+        <span class="pill ${isNow ? "leaf" : "mute"}">${isNow ? "اليوم المفتوح" : "يوم سابق"}</span>
+      </div>
+      ${isNow && isTaskDay ? `<div class="winbar">⏳ الإدخال مفتوح حتى <b>${fmtHour(close.hour, close.minute)}</b> يوم ${AR_DAYS[dowOf(close.date)]} — بعدها يتصفّر الحضور ويبدأ يوم جديد، واللي تسجّل بعدها يتوسّم «متأخر»</div>` : ""}
+      ${isTaskDay ? "" : `<div class="muted" style="font-size:.82rem;margin-top:8px">هذا اليوم ليس يوم مهام.</div>`}
+      <div class="row" style="margin-top:10px;gap:8px">
+        <input type="date" id="a-date" value="${A.date}" max="${todayStr()}" style="flex:1">
+        ${isNow ? "" : `<button class="btn ghost sm" id="a-now">اليوم المفتوح</button>`}
+      </div>
     </div>
     <div class="grid3" style="margin-bottom:12px">
       <div class="stat"><div class="k">الحافظات</div><div class="v tnum">${active.length}</div></div>
-      <div class="stat"><div class="k">سجّلن اليوم</div><div class="v tnum" style="color:var(--leaf)">${present.size}</div></div>
+      <div class="stat"><div class="k">سجّلن</div><div class="v tnum" style="color:var(--leaf)">${present.size}</div></div>
       <div class="stat"><div class="k">لم يسجّلن</div><div class="v tnum" style="color:var(--rose)">${absent.length}</div></div>
     </div>
+    ${lateIds.length ? `<div class="panel" style="margin-bottom:12px">
+      <div class="section-title">سجّلن متأخرات <span class="pill grain">${lateIds.length}</span></div>
+      <div class="muted" style="font-size:.8rem;margin-bottom:6px">سجّلن هذا اليوم بعد انتهاء نافذته — الدرجات محسوبة لهن.</div>
+      ${lateIds.map(id => `<div class="between" style="padding:6px 0;border-bottom:1px solid var(--line)">
+          <span>${esc(nameOf(id))}</span><span class="pill grain">⏳ متأخر</span></div>`).join("")}
+    </div>` : ""}
     <div class="panel" style="margin-bottom:12px">
       <div class="section-title">لم يسجّلن بعد</div>
       ${absent.length ? absent.map(s => `<div class="between" style="padding:7px 0;border-bottom:1px solid var(--line)">
@@ -1585,11 +1761,13 @@ function adminToday(b, app) {
     <div class="panel">
       <div class="section-title">ملاحظات الحافظات اليوم</div>
       ${notes.length ? notes.map(e => `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-          <b style="font-size:.9rem">${esc(nameOf(e.student_id))}</b>
+          <b style="font-size:.9rem">${esc(nameOf(e.student_id))}</b>${lateSet.has(e.student_id) ? ' <span class="pill grain">متأخر</span>' : ""}
           <div class="muted" style="font-size:.86rem">${esc(e.note)}</div></div>`).join("")
       : `<p class="muted">لا توجد ملاحظات لهذا اليوم.</p>`}
     </div>`;
-  $("#a-date").onchange = e => { A.date = e.target.value || todayStr(); viewAdmin(app); };
+  $("#a-date").onchange = e => { A.date = e.target.value || programDay(st); viewAdmin(app); };
+  const nowBtn = $("#a-now");
+  if (nowBtn) nowBtn.onclick = () => { A.date = programDay(st); viewAdmin(app); };
 }
 
 /* ---------------- تبويب الدرجات ---------------- */
@@ -1801,9 +1979,10 @@ function adminSettings(b, app) {
     </div>
     <div class="panel stack" style="margin-bottom:12px">
       <div class="section-title">القواعد</div>
+      <p class="muted" style="font-size:.8rem">نافذة الإدخال تبدأ كل يوم في الساعة المحددة وتمتد ٢٤ ساعة (والخميس يمتد إلى الجمعة ١٠ مساءً). الحافظة ما تقدر تسجّل خارج نافذة يومها.</p>
       <div class="grid2">
         <label class="field">درجة كل مهمة<input type="number" id="s-pts" value="${st.points_per_task}"></label>
-        <label class="field">تسجيل بأثر رجعي (أيام)<input type="number" id="s-back" value="${st.backfill_days}"></label>
+        <label class="field">ساعة بدء الإدخال<input type="number" id="s-hour" min="0" max="23" value="${+st.entry_start_hour || 17}"></label>
       </div>
       <div class="field">أيام المهام
         <div class="row" style="flex-wrap:wrap;gap:6px">
@@ -1883,7 +2062,8 @@ function adminSettings(b, app) {
       course_name: $("#s-name").value.trim(), slogan: $("#s-slogan").value.trim(),
       subtitle: $("#s-sub").value.trim(), theme: $("#s-theme").value,
       supervisor_whatsapp: $("#s-wa").value.trim(),
-      points_per_task: +$("#s-pts").value || 5, backfill_days: +$("#s-back").value || 3,
+      points_per_task: +$("#s-pts").value || 5,
+      entry_start_hour: Math.min(23, Math.max(0, +$("#s-hour").value || 17)),
       task_days: days, exam_days: exams, rest_days: rest, tasks
     };
     try {
