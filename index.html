@@ -929,7 +929,8 @@ function skySVG(done, total, opts) {
   });
 
   /* ---------- الغيمة ---------- */
-  g += `<g transform="translate(60,${SKY.cloudY}) scale(${T.scale.toFixed(3)})"${A ? ' class="cloud"' : ""}>
+  /* ملاحظة: حركة CSS تستبدل خاصية transform، فالحركة على مجموعة داخلية منفصلة */
+  g += `<g transform="translate(60,${SKY.cloudY}) scale(${T.scale.toFixed(3)})"><g${A ? ' class="cloud"' : ""}>
       <g fill="${T.back}">
         <circle cx="-21" cy="-2" r="14"/><circle cx="-1" cy="-13" r="18"/>
         <circle cx="20" cy="-6" r="15"/><circle cx="33" cy="2" r="11"/>
@@ -940,7 +941,7 @@ function skySVG(done, total, opts) {
         <circle cx="13" cy="-2" r="13"/><circle cx="26" cy="5" r="9"/>
         <rect x="-36" y="2" width="62" height="13" rx="6.5"/>
       </g>
-    </g>`;
+    </g></g>`;
 
   /* ---------- المطر ---------- */
   if (T.drops) {
@@ -963,14 +964,14 @@ function skySVG(done, total, opts) {
     g += `<g${A ? ' class="pop-in" style="animation-delay:.35s"' : ""}>
         <path class="stem" d="M60 ${SKY.ground} C 57 ${SKY.ground - SKY.sproutH * 0.45} 63 ${SKY.ground - SKY.sproutH * 0.75} 60 ${top}"
           fill="none" stroke="${C.plant}" stroke-width="3.6" stroke-linecap="round"/>
-        <g transform="translate(60,${top + 9}) rotate(-20)"${A ? ' class="leaf-sway"' : ""}>
+        <g transform="translate(60,${top + 9}) rotate(-20)"><g${A ? ' class="leaf-sway"' : ""}>
           <path d="M0 0 C 9 -10 24 -12 33 -6 C 24 4 9 7 0 0 Z" fill="${C.plant2}"/>
           <path d="M1 -1 C 9 -8 20 -10 29 -7 C 20 -5 9 -3 1 -1 Z" fill="#fff" opacity=".18"/>
-        </g>
-        <g transform="translate(60,${top + 17}) scale(-1,1) rotate(-14)"${A ? ' class="leaf-sway"' : ""}>
+        </g></g>
+        <g transform="translate(60,${top + 17}) scale(-1,1) rotate(-14)"><g${A ? ' class="leaf-sway"' : ""}>
           <path d="M0 0 C 8 -9 21 -11 29 -5 C 21 3 8 6 0 0 Z" fill="${C.plant2}"/>
           <path d="M1 -1 C 8 -7 18 -9 26 -6 C 18 -4 8 -2 1 -1 Z" fill="#fff" opacity=".18"/>
-        </g>
+        </g></g>
         <path d="M60 ${top} c -3 -4 -2 -9 0 -11 c 2 2 3 7 0 11 Z" fill="${C.plant}"/>
       </g>`;
   }
