@@ -1310,7 +1310,7 @@ async function viewToday(app) {
       <label class="field" style="margin-top:6px">ملاحظة لليوم <span class="muted">(اختياري — تصل للمشرفة)</span>
         <textarea id="d-note" placeholder="كم وجهًا سردتِ؟ وش صعب عليكِ؟">${esc(dayState.note)}</textarea></label>
     </div>
-    <button class="btn wide grain" id="d-card">📸 احفظي البطاقة وشاركيها</button>`;
+    <button class="btn wide grain" id="d-card">📸 شاركي البطاقة</button>`;
 
   drawTasks();
   $("#d-note").addEventListener("change", () => { dayState.note = $("#d-note").value; persist(); });
@@ -1337,6 +1337,7 @@ function drawTasks() {
         ${t.mode === "counter" ? `<span class="t-meta"><span class="dots">${Array.from({ length: t.target || 3 }, (_, k) => `<i class="${k < cnt ? "on" : ""}"></i>`).join("")}</span><span class="muted" style="font-size:.78rem">${cnt} من ${t.target || 3}</span></span>` : ""}
       </span>`;
     b.onclick = ev => {
+      const before = progress();
       if (t.mode === "counter") {
         const next = (+dayState.tasks[t.key] || 0) + 1;
         dayState.tasks[t.key] = next > (t.target || 3) ? 0 : next;
@@ -1346,8 +1347,9 @@ function drawTasks() {
         if (dayState.tasks[t.key]) burst(ev.clientX, ev.clientY);
       }
       drawTasks(); persist();
-      const pr = progress();
-      if (pr.done === pr.total && pr.total) celebrate(ev);
+      /* الاحتفال فقط لحظة اكتمال المهام اليومية — المراجعة الكبرى لا تُحسب ولا تُطلقه */
+      const after = progress();
+      if (!t.manual && after.total && before.done < before.total && after.done === after.total) celebrate(ev);
     };
     box.appendChild(b);
   });
@@ -1648,7 +1650,7 @@ function showCardSheet(dataUrl, blob) {
       <p class="muted center" style="font-size:.75rem;margin:8px 0 10px">
         أو اضغطي مطوّلاً على الصورة لحفظها في الاستوديو</p>
       <div class="grid2">
-        <button class="btn" id="sh-save">حفظ الصورة</button>
+        <button class="btn" id="sh-save">شاركي البطاقة</button>
         <button class="btn ghost" id="sh-close">إغلاق</button>
       </div>
     </div>`;
