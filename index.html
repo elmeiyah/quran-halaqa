@@ -2446,11 +2446,8 @@ function cWelcome(app) {
     </div>
     <div style="position:relative;padding:20px 0 6px">
       <div class="c-orb"><img class="c-art c-float" src="${ART.cloud}" alt=""></div>
-      <span class="c-chip c-float-chip" style="top:20px;right:0"><span class="ok">${IC.check}</span> السرد الذاتي</span>
-      <span class="c-chip c-float-chip pri" style="top:44%;left:0">+${ar(5)} درجات</span>
-      <span class="c-chip c-float-chip" style="bottom:4px;right:8%">${IC.star} تحدّي الأسبوع</span>
     </div>
-    <h1 class="c-hero-title">غيمة بعد غيمة،<br>حتى يُثمر حفظك</h1>
+    <h1 class="c-hero-title">${esc((S.settings || DEFAULT_SETTINGS).slogan || "بُشْرًا بَيْنَ يَدَيْ رَحْمَتِهِ")}</h1>
     <p class="c-sub" style="text-align:center">سجّلي إنجازك اليومي في الحلقة، وكل مهمة تخلّي غيمتك تمطر أكثر.</p>
     <div class="c-note" style="text-align:center">دورة جديدة — <b>سجّلي من جديد</b> حتى لو كنتِ معنا في الدورة السابقة.</div>
     <button class="c-btn split" data-go="register"><span>ابدئي — تسجيل جديد</span><span class="c-go">${IC.arrow}</span></button>
@@ -2620,7 +2617,7 @@ function revBind(box, R) {
 function cRegister(app) {
   const F = S.regDraft || (S.regDraft = { step: 1, name: "", wa: "", R: revInit() });
   const step = F.step;
-  const titles = ["مين أنتِ؟", "كم تراجعين؟", "رمزك السري"];
+  const titles = ["من أنتِ؟", "كم تراجعين؟", "رمزك السري"];
   const subs = ["اسمك يظهر للمشرفة وفي المتصدرات، ورقمك يفيدك لو نسيتِ رمزك.",
     "اختاري النوع والعدد، وبعدها حدّدي المقرر.", "أرقام تتذكرينها — تدخلين فيها كل مرة."];
   app.innerHTML = `<div class="c-wrap nonav">
@@ -2703,7 +2700,7 @@ async function cToday(app) {
 
   if (!isTask) return cRest(app, C);
 
-  const chips = days.length > 1 ? `<div class="c-dayrow">${days.map(d => `<button type="button" data-day="${d}" class="${d === sel ? "on" : ""}">
+  const chips = (days.length > 1 || !openIsTask) ? `<div class="c-dayrow">${days.map(d => `<button type="button" data-day="${d}" class="${d === sel ? "on" : ""}">
       <span>${AR_DAYS[dowOf(d)].replace("ال", "")}</span><b>${ar(new Date(d + "T00:00:00Z").getUTCDate())}</b>${d === open ? "" : IC.clock}</button>`).join("")}</div>` : "";
 
   app.innerHTML = `<div class="c-wrap">
@@ -2905,11 +2902,18 @@ async function cRest(app, C) {
     : exam ? "درجة الاختبار تضيفها المشرفة وتظهر في مجموع أسبوعك."
       : `يبدأ إدخال المهام الساعة ${fmtHour(C.startH, 0)}.`;
   const left = nx ? minutesUntil(nx, C.startH, 0) : 0;
+  /* الأيام الفايتة اللي تقدر تسجّلها متأخرة (ضمن المهلة) */
+  const late = C.days.filter(d => d !== C.open);
+  const lateBox = late.length ? `<div class="c-card">
+      <div class="c-eyebrow">${IC.clock.replace("<svg", '<svg style="width:15px;height:15px;vertical-align:-3px;color:var(--c-late)"')} فاتك يوم؟ سجّليه متأخر — ينحسب لج كامل</div>
+      <div class="c-dayrow" style="margin-top:10px">${late.map(d => `<button type="button" data-day="${d}">
+        <span>${AR_DAYS[dowOf(d)].replace("ال", "")}</span><b>${ar(new Date(d + "T00:00:00Z").getUTCDate())}</b>${IC.clock}</button>`).join("")}</div></div>` : "";
   app.innerHTML = `<div class="c-wrap">
     ${demoBanner()}
     <div class="c-date" style="text-align:left">${esc(arDayMonth(C.n.date))}</div>
     <div class="c-hero"><img class="c-art c-float" src="${ART.quran}" alt="" style="width:min(56vw,220px)">
       <h1>${title}</h1><p class="c-sub">${txt}</p></div>
+    ${lateBox}
     <div class="c-tiles">
       <div class="c-card c-tile"><div class="k">${IC.drop} مجموع أسبوعك</div>
         <div class="v"><b id="r-tot">…</b><span>درجة</span></div><div class="s" id="r-rank"></div></div>
@@ -2922,6 +2926,7 @@ async function cRest(app, C) {
       <div class="c-sub" style="font-size:.82rem">نورٌ ما بين الجمعتين</div></div></div>` : ""}
     <button class="c-btn ghost" data-go="board">${IC.trophy} شوفي ترتيب هذا الأسبوع</button>
   </div>${cNav("today")}`;
+  app.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.picked = true; S.cBack = false; cToday(app); });
   if (nx) cTimer = setInterval(() => { const t = $("#r-left"); if (t) t.textContent = fmtLeft(minutesUntil(nx, C.startH, 0)); else cClearTimer(); }, 30000);
   try {
     const week = weekStartOf(todayStr());
