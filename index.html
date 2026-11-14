@@ -3100,9 +3100,12 @@ async function cBuildCard() {
   const full = total > 0 && done === total;
   let streak = null;
   try { const w = await DB.weekSummary(S.token, weekStartOf(todayStr())); streak = w.streak || 0; } catch (e) { }
-  const [art, mini] = await Promise.all([loadImg(full ? ART.crown : ART.cloud), loadImg(ART.cloud)]);
+  const art = await loadImg(full ? ART.crown : ART.cloud);
   const FB = '"Thmanyah Sans","Noto Sans Arabic",system-ui,sans-serif';
-  const W = 360, H = 560, SC = 3;
+  const tasks = st.tasks, rowH = 38;
+  const py = 186, ph = 172;                         /* لوحة المرحلة */
+  const ty = py + ph + 12, tph = 14 + tasks.length * rowH + 6;   /* لوحة المهام */
+  const W = 360, H = ty + tph + 78, SC = 3;
   const cv = document.createElement("canvas"); cv.width = W * SC; cv.height = H * SC;
   const ctx = cv.getContext("2d"); ctx.scale(SC, SC); ctx.direction = "rtl";
 
@@ -3111,50 +3114,71 @@ async function cBuildCard() {
   let g = ctx.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, "#D6D2FB"); g.addColorStop(.5, "#E6E6FD"); g.addColorStop(1, "#CBE2F8");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  g = ctx.createRadialGradient(W * .5, 150, 10, W * .5, 150, 200);
+  g = ctx.createRadialGradient(W * .5, 110, 10, W * .5, 110, 190);
   g.addColorStop(0, "rgba(255,255,255,.75)"); g.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineCap = "round";
-  [[30, 40, 40], [320, 90, 30], [60, 300, 26], [300, 330, 36], [180, 20, 22]].forEach(([x, y, l]) => {
+  [[30, 30, 40], [320, 70, 30], [44, 150, 22], [318, 160, 26], [180, 14, 18]].forEach(([x, y, l]) => {
     ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + l); ctx.stroke();
   });
 
-  /* الشعار */
-  ctx.fillStyle = "rgba(255,255,255,.8)"; roundRect(ctx, W - 118, 18, 100, 36, 18); ctx.fill();
-  ctx.drawImage(mini, W - 52, 22, 30, 30 * mini.height / mini.width);
-  ctx.fillStyle = "#1D1B4F"; ctx.font = `700 15px ${FB}`; ctx.textAlign = "right";
-  ctx.fillText("بُشْرًا", W - 58, 42);
-
   /* الرسمة */
-  const aw = full ? 190 : 170, ah = aw * art.height / art.width;
+  const aw = full ? 176 : 150, ah = aw * art.height / art.width;
   ctx.save(); ctx.shadowColor = "rgba(70,60,190,.28)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 14;
-  ctx.drawImage(art, (W - aw) / 2, 66 + (180 - ah) / 2, aw, ah); ctx.restore();
+  ctx.drawImage(art, (W - aw) / 2, 18 + (156 - ah) / 2, aw, ah); ctx.restore();
 
-  /* اللوحة */
-  const py = 262, ph = 200;
-  ctx.fillStyle = "rgba(255,255,255,.62)"; roundRect(ctx, 22, py, W - 44, ph, 26); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 1; roundRect(ctx, 22.5, py + .5, W - 45, ph - 1, 26); ctx.stroke();
+  const glass = (x, y, w, h, rr) => {
+    ctx.fillStyle = "rgba(255,255,255,.62)"; roundRect(ctx, x, y, w, h, rr); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 1; roundRect(ctx, x + .5, y + .5, w - 1, h - 1, rr); ctx.stroke();
+  };
+
+  /* لوحة المرحلة */
+  glass(22, py, W - 44, ph, 26);
   ctx.textAlign = "center"; ctx.fillStyle = "#615E92"; ctx.font = `700 12px ${FB}`;
-  ctx.fillText(`${S.student ? S.student.name.split(" ").slice(0, 2).join(" ") : ""} · ${arDayMonth(S.date)}`, W / 2, py + 30, W - 70);
-  ctx.fillStyle = "#1D1B4F"; ctx.font = `700 30px ${FB}`;
-  ctx.fillText(STAGES[k] + (full ? "!" : ""), W / 2, py + 72, W - 70);
-  /* الشريط المقسّم */
+  ctx.fillText(`${S.student ? S.student.name.split(" ").slice(0, 2).join(" ") : ""} · ${arDayMonth(S.date)}`, W / 2, py + 28, W - 70);
+  ctx.fillStyle = "#1D1B4F"; ctx.font = `700 28px ${FB}`;
+  ctx.fillText(STAGES[k] + (full ? "!" : ""), W / 2, py + 66, W - 70);
   const sw = 22, gap = 6, tw = sw * 7 + gap * 6; let sx = W / 2 + tw / 2;
   for (let i = 0; i < 7; i++) {
     sx -= sw;
     ctx.fillStyle = i < k || (i === k && full) ? "#5A54E6" : i === k ? "#3B93C9" : "rgba(90,84,230,.16)";
-    roundRect(ctx, sx, py + 90, sw, 7, 3.5); ctx.fill();
+    roundRect(ctx, sx, py + 82, sw, 7, 3.5); ctx.fill();
     sx -= gap;
   }
-  /* الأرقام */
   const cols = [[ar(pts), "درجة"], [`${ar(done)}/${ar(total)}`, "مهام"]];
   if (streak != null) cols.push([ar(streak), "أيام متتالية"]);
   const cw = (W - 70) / cols.length;
   cols.forEach(([v, l], i) => {
     const cx = W - 35 - cw * i - cw / 2;
-    ctx.fillStyle = "#5A54E6"; ctx.font = `700 26px ${FB}`; ctx.fillText(v, cx, py + 146);
-    ctx.fillStyle = "#615E92"; ctx.font = `700 11.5px ${FB}`; ctx.fillText(l, cx, py + 168);
+    ctx.fillStyle = "#5A54E6"; ctx.font = `700 26px ${FB}`; ctx.fillText(v, cx, py + 136);
+    ctx.fillStyle = "#615E92"; ctx.font = `700 11.5px ${FB}`; ctx.fillText(l, cx, py + 156);
   });
+
+  /* قائمة المهام */
+  glass(22, ty, W - 44, tph, 24);
+  tasks.forEach((t, i) => {
+    const v = dayState.tasks[t.key], ok = taskDone(t, v);
+    const y = ty + 14 + i * rowH, cy = y + rowH / 2 - 3;
+    ctx.fillStyle = ok ? "rgba(90,84,230,.12)" : "rgba(255,255,255,.55)";
+    roundRect(ctx, 32, y, W - 64, rowH - 6, 14); ctx.fill();
+    const cx = W - 32 - 18;
+    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 7);
+    if (ok) {
+      ctx.fillStyle = "#5A54E6"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.beginPath(); ctx.moveTo(cx - 4, cy + .3); ctx.lineTo(cx - 1.2, cy + 3.4); ctx.lineTo(cx + 4.2, cy - 3.4); ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(90,84,230,.35)"; ctx.lineWidth = 1.6; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.textAlign = "right"; ctx.fillStyle = ok ? "#1D1B4F" : "#615E92"; ctx.font = `${ok ? 700 : 400} 13px ${FB}`;
+    ctx.fillText(t.title, cx - 18, cy + 4.5, W - 160);
+    ctx.textAlign = "left"; ctx.font = `700 11px ${FB}`;
+    const pp = t.points || st.points_per_task;
+    const tag = t.manual ? "من المشرفة" : t.mode === "counter" && !ok && (+v || 0) > 0 ? `${ar(+v)}/${ar(t.target || 3)}` : "+" + ar(pp);
+    ctx.fillStyle = ok ? "#5A54E6" : "rgba(97,94,146,.75)";
+    ctx.fillText(tag, 46, cy + 4);
+  });
+  ctx.textAlign = "center";
 
   /* الآية */
   ctx.fillStyle = "#4A45C9"; ctx.font = `700 16px "Thmanyah Serif Display",${FB}`;
