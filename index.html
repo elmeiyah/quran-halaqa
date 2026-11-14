@@ -1804,7 +1804,7 @@ async function viewToday(app) {
       ${limited ? `<div class="note-day">${dayNote(st, sel)}</div>` : ""}
       <div class="tasks" id="d-tasks"></div>
       <label class="field" style="margin-top:6px">ملاحظة لليوم <span class="muted">(اختياري — تصل للمشرفة)</span>
-        <textarea id="d-note" placeholder="كم وجهًا سردتِ؟ وش صعب عليكِ؟">${esc(dayState.note)}</textarea></label>
+        <textarea id="d-note" placeholder="اكتبي خواطر مرّت عليك اليوم">${esc(dayState.note)}</textarea></label>
     </div>
     <button class="btn wide grain" id="d-card">📸 شاركي البطاقة</button>`;
 
@@ -2763,57 +2763,20 @@ function cPaint() {
       <div class="v"><b>${ar(pts)}</b><span>درجة</span></div>
       <div class="s">${S.cLast ? `+${ar(S.cLast)} آخر مهمة` : done ? `${ar(done)} من ${ar(total)} ${tasksWord(total)}` : "ابدئي بأول مهمة"}</div></div>`;
 
-  const complete = total > 0 && done === total && !S.cBack;
-  if (complete) {
-    const manual = st.tasks.filter(t => t.manual && !taskDone(t, dayState.tasks[t.key]));
-    main.innerHTML = `<div class="stack">
-      <div class="c-hero">
+  const complete = total > 0 && done === total;
+  const prevNote = $("#c-note"); if (prevNote) dayState.note = prevNote.value;
+
+  /* بطاقة الأعلى: المرحلة، أو التاج عند اكتمال مهام اليوم */
+  const top = complete ? `<div class="c-hero">
         <svg class="c-drop-fx" style="top:8%;right:14%" viewBox="0 0 24 24"><path d="M12 2c3 4.5 7 8 7 12a7 7 0 0 1-14 0c0-4 4-7.5 7-12Z" fill="currentColor"/></svg>
         <svg class="c-drop-fx" style="top:2%;left:20%;animation-delay:-2s;width:12px" viewBox="0 0 24 24"><path d="M12 2c3 4.5 7 8 7 12a7 7 0 0 1-14 0c0-4 4-7.5 7-12Z" fill="currentColor"/></svg>
-        <svg class="c-drop-fx" style="top:46%;right:6%;animation-delay:-3s;width:12px" viewBox="0 0 24 24"><path d="M12 2c3 4.5 7 8 7 12a7 7 0 0 1-14 0c0-4 4-7.5 7-12Z" fill="currentColor"/></svg>
-        <img class="c-art c-float" src="${ART.crown}" alt="">
+        <img class="c-art c-float" src="${ART.crown}" alt="" style="width:min(48vw,190px)">
         <div class="c-seg">${seg}</div>
         <div class="c-eyebrow pri">المرحلة ٧ من ٧</div>
         <h1>${esc(STAGES[STAGES.length - 1])}!</h1>
         <p class="c-sub">خلّصتِ مهام ${esc(dayName)} كلها، ما شاء الله تبارك الله</p>
-      </div>
-      <div class="c-tiles">
-        <div class="c-card c-tile"><div class="k">${IC.check} المهام</div><div class="v"><b>${ar(done)}/${ar(total)}</b></div><div class="s">${manual.length ? "باقي تحدّي الأسبوع" : "كلها تمّت"}</div></div>
-        ${tilePts}
-      </div>
-      <button class="c-btn pri" id="c-card">${IC.camera} شاركي البطاقة</button>
-      <button class="c-btn ghost" id="c-back">رجوع لليوم</button>
-    </div>`;
-    $("#c-card").onclick = () => cMakeCard();
-    $("#c-back").onclick = () => { S.cBack = true; cPaint(); };
-    return;
-  }
-
-  /* المهمة التالية: أول مهمة غير منجزة من مهام اليوم، ثم تحدّي الأسبوع */
-  const all = st.tasks;
-  const nextT = all.find(t => !t.manual && !taskDone(t, dayState.tasks[t.key])) || all.find(t => !taskDone(t, dayState.tasks[t.key]));
-  const idx = nextT ? all.indexOf(nextT) + 1 : 0;
-  let nextHTML = "";
-  if (nextT) {
-    const cnt = nextT.mode === "counter" ? (+dayState.tasks[nextT.key] || 0) : 0, tg = nextT.target || 3;
-    const pp = nextT.points || st.points_per_task;
-    nextHTML = `<div class="c-card c-next">
-      <div class="c-next-top"><span class="c-eyebrow">${nextT.manual ? "تحدّي الأسبوع · من المشرفة" : `المهمة التالية · ${ar(idx)} من ${ar(all.length)}`}</span>
-        <span class="c-chip pri">${nextT.manual ? "من المشرفة" : "+" + ar(pp)}</span></div>
-      <div class="c-next-body">
-        <div class="tx"><h3>${esc(nextT.title)}</h3><p>${esc(nextT.hint || "")}</p>
-          ${nextT.mode === "counter" ? `<span class="c-drops">${Array.from({ length: tg }, (_, i) => dropSVG(i < cnt ? "fill" : "off")).join("")}<small class="c-sub" style="margin-inline-start:4px">${ar(cnt)} من ${ar(tg)}</small></span>` : ""}</div>
-        <button class="c-big" id="c-do" aria-label="تمّت ${esc(nextT.title)}">
-          ${nextT.mode === "counter" ? `<b>${ar(cnt + 1)}</b><small>مرّة</small>` : nextT.manual ? `<b>${IC.check.replace("<svg", '<svg style="width:30px;height:30px"')}</b><small>سوّيتها</small>` : `<b>${ar(pp)}</b><small>تمّت</small>`}
-        </button>
-      </div>
-    </div>`;
-  }
-  const core = cCore();
-  const dots = core.map(t => `<i class="${taskDone(t, dayState.tasks[t.key]) ? "on" : t === nextT ? "cur" : ""}"></i>`).join("");
-
-  main.innerHTML = `<div class="stack">
-    <div class="c-card c-stage">
+      </div>`
+    : `<div class="c-card c-stage">
       <img class="c-stage-art c-art c-float" src="${ART.cloud}" alt="" style="transform-origin:center;scale:${(0.84 + r * 0.16).toFixed(2)}">
       <div class="c-stage-txt">
         <div class="c-eyebrow pri">المرحلة ${ar(k + 1)} من ٧</div>
@@ -2822,15 +2785,39 @@ function cPaint() {
       </div>
       <div class="c-seg">${seg}</div>
       <div class="c-pct"><span>مكتمل</span><b>${ar(Math.round(r * 100))}٪</b></div>
-    </div>
+    </div>`;
+
+  /* كل المهام في قائمة واحدة بترتيبها الثابت */
+  const lim = st.tasks.length < S.settings.tasks.length;
+  main.innerHTML = `<div class="stack">
+    ${top}
     <div class="c-tiles">${tilePts}${tileLeft}</div>
-    ${nextHTML}
-    <div class="c-pager"><div class="dots">${dots}</div><button class="c-link" id="c-all">كل المهام</button></div>
-    <button class="c-btn ghost" id="c-card">${IC.camera} شاركي البطاقة</button>
+    <div>
+      <div class="c-sheet-head" style="padding:0 4px"><h3>مهام ${esc(dayName)}</h3><span class="c-chip pri">${ar(done)} من ${ar(total)}</span></div>
+      ${lim ? `<div class="c-note" style="margin:8px 0">${dayNote(S.settings, C.sel)}</div>` : ""}
+      <div id="c-list" style="margin-top:10px">${st.tasks.map(t => cRow(t, st)).join("")}</div>
+    </div>
+    <label class="c-field">ملاحظة لليوم <span style="font-weight:400">(اختياري — تصل للمشرفة)</span>
+      <span class="c-input"><textarea id="c-note" placeholder="اكتبي خواطر مرّت عليك اليوم">${esc(dayState.note)}</textarea></span></label>
+    <button class="c-btn ${complete ? "pri" : "ghost"}" id="c-card">${IC.camera} شاركي البطاقة</button>
   </div>`;
-  if (nextT) $("#c-do").onclick = ev => cToggle(nextT, ev);
-  $("#c-all").onclick = () => cTaskSheet();
+  main.querySelectorAll("[data-key]").forEach(b => b.onclick = ev => {
+    const t = st.tasks.find(x => x.key === b.dataset.key); if (t) cToggle(t, ev);
+  });
+  const note = $("#c-note");
+  note.addEventListener("change", () => { dayState.note = note.value; persist(); });
   $("#c-card").onclick = () => cMakeCard();
+}
+
+/* سطر مهمة واحد (في القائمة) */
+function cRow(t, st) {
+  const v = dayState.tasks[t.key], ok = taskDone(t, v), pp = t.points || st.points_per_task;
+  const cnt = t.mode === "counter" ? (+v || 0) : 0, tg = t.target || 3;
+  return `<button type="button" class="c-trow${ok ? " done" : ""}" data-key="${t.key}">
+    <span class="c-badge${t.manual && !ok ? " star" : ""}">${ok ? IC.check : t.manual ? IC.star : ar(pp)}</span>
+    <span class="bd"><b>${esc(t.title)}</b><small>${esc(t.hint || "")}</small>
+      ${t.mode === "counter" && !ok ? `<span class="c-drops">${Array.from({ length: tg }, (_, i) => dropSVG(i < cnt ? "fill" : "off")).join("")}<small style="display:inline;margin-inline-start:4px">${ar(cnt)} من ${ar(tg)}</small></span>` : ""}</span>
+    <span class="c-chip ${t.manual ? "" : "pri"}">${t.manual ? "من المشرفة" : "+" + ar(pp)}</span></button>`;
 }
 
 function cToggle(t, ev) {
@@ -2876,7 +2863,7 @@ function cTaskSheet(refresh) {
     ${left.length ? `<div class="c-group">الباقي · ${ar(left.length)}</div>${left.map(row).join("")}` : ""}
     ${fin.length ? `<div class="c-group">تمّت · ${ar(fin.length)}</div>${fin.map(row).join("")}` : ""}
     <label class="c-field" style="margin-top:12px">ملاحظة لليوم <span style="font-weight:400">(اختياري — تصل للمشرفة)</span>
-      <span class="c-input"><textarea id="c-note" placeholder="كم وجهًا سردتِ؟ وش صعب عليكِ؟">${esc(dayState.note)}</textarea></span></label>
+      <span class="c-input"><textarea id="c-note" placeholder="اكتبي خواطر مرّت عليك اليوم">${esc(dayState.note)}</textarea></span></label>
     <button class="c-btn" style="margin-top:12px" data-x>تم</button>
   </div>`;
   if (refresh && keepNote) sh.querySelector(".c-sheet-in").style.animation = "none";
