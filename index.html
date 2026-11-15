@@ -2427,7 +2427,10 @@ const IC = {
   book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5Z"/><path d="M12 6.5v13"/></svg>',
   sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   bars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/></svg>',
-  wa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.6 18.6l-4.1.9Z"/></svg>'
+  wa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.6 18.6l-4.1.9Z"/></svg>',
+  pair: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="9" r="3.2"/><circle cx="15.5" cy="9" r="3.2"/><path d="M3 19.5a5.5 5.5 0 0 1 9-4.2 5.5 5.5 0 0 1 9 4.2"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  magic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 15 9M14 4v3M18.5 5.5l-2 2M20 10h-3"/></svg>'
 };
 
 /* قطرة (الحالات: on / late / today / off / rest) */
@@ -3235,7 +3238,7 @@ function cCardSheet(dataUrl, blob) {
 }
 
 /* ================================================================ لوحة المشرفات */
-const ADM_TABS = [["today", "اليوم", "cloud"], ["scores", "الدرجات", "bars"], ["board", "المتصدرات", "trophy"], ["students", "الحافظات", "users"], ["settings", "الإعدادات", "sliders"]];
+const ADM_TABS = [["today", "اليوم", "cloud"], ["scores", "الدرجات", "bars"], ["board", "المتصدرات", "trophy"], ["students", "الحافظات", "users"], ["partners", "الرفيقات", "pair"], ["settings", "الإعدادات", "sliders"]];
 function cAdminShell(app) {
   app.innerHTML = `<div class="c-admin">
     <aside class="c-card c-side">
@@ -3374,6 +3377,314 @@ function cAdminScores(b, app) {
   });
 }
 
+
+/* ================================================================
+   جدول الرفيقة القرآنية — يقترح رفيقات من خطط المراجعة،
+   والمختلفات يبقين في قائمة تختار منها المشرفة بنفسها
+   ================================================================ */
+/* خطة الحافظة كأحزاب (الجزء = حزبان) — للمقارنة بين الأجزاء والأحزاب */
+function planSet(s) {
+  const nums = String(s.review_value || "").split(/[,\s]+/).map(Number).filter(x => x > 0);
+  if (!nums.length) return null;
+  const out = new Set();
+  if (s.review_unit === "hizb") nums.forEach(n => out.add(n));
+  else if (s.review_unit === "juz") nums.forEach(n => { out.add(2 * n - 1); out.add(2 * n); });
+  else return null;
+  return out;
+}
+function planSim(a, b) {
+  if (!a || !b) return 0;
+  let inter = 0; a.forEach(x => { if (b.has(x)) inter++; });
+  return inter / (a.size + b.size - inter);
+}
+const PAIR_MIN = 0.5;
+
+function suggestPairs(students) {
+  const act = students.filter(s => s.active !== false);
+  const sets = new Map(act.map(s => [s.id, planSet(s)]));
+  const groups = [], used = new Set();
+  /* ١) نفس المقرر تمامًا: أزواج، ومجموعة ثلاثية إذا العدد فردي */
+  const byKey = {};
+  act.forEach(s => { const st = sets.get(s.id); if (st) { const k = [...st].sort((x, y) => x - y).join(","); (byKey[k] = byKey[k] || []).push(s.id); } });
+  Object.values(byKey).forEach(ids => {
+    if (ids.length < 2) return;
+    let i = 0;
+    if (ids.length % 2 === 1) { groups.push({ ids: ids.slice(0, 3), kind: "same", score: 1 }); i = 3; }
+    for (; i + 1 < ids.length; i += 2) groups.push({ ids: [ids[i], ids[i + 1]], kind: "same", score: 1 });
+    ids.forEach(id => used.add(id));
+  });
+  /* ٢) متقاربات: أعلى تشابه أولاً */
+  const rest = act.filter(s => !used.has(s.id) && sets.get(s.id));
+  const cand = [];
+  for (let i = 0; i < rest.length; i++) for (let j = i + 1; j < rest.length; j++) {
+    const sc = planSim(sets.get(rest[i].id), sets.get(rest[j].id));
+    if (sc >= PAIR_MIN) cand.push([sc, rest[i].id, rest[j].id]);
+  }
+  cand.sort((x, y) => y[0] - x[0]).forEach(([sc, a, b]) => {
+    if (used.has(a) || used.has(b)) return;
+    groups.push({ ids: [a, b], kind: "near", score: sc }); used.add(a); used.add(b);
+  });
+  /* ٣) الباقية: تنضم لزوج يشبهها لتصير ثلاثية */
+  act.filter(s => !used.has(s.id) && sets.get(s.id)).forEach(s => {
+    let best = null, bs = 0;
+    groups.filter(g => g.ids.length === 2).forEach(g => {
+      const sc = Math.min(...g.ids.map(id => planSim(sets.get(s.id), sets.get(id))));
+      if (sc >= PAIR_MIN && sc > bs) { bs = sc; best = g; }
+    });
+    if (best) { best.ids.push(s.id); best.kind = best.kind === "same" && bs === 1 ? "same" : "near"; best.score = Math.min(best.score, bs); used.add(s.id); }
+  });
+  return groups;
+}
+
+function pairsLoad() {
+  if (A.pairs) return;
+  const d = A.data, ids = new Set(d.students.filter(s => s.active !== false).map(s => s.id));
+  const saved = (d.settings && d.settings.partners) || [];
+  A.pairs = saved.map(g => ({ ids: (g.ids || []).filter(id => ids.has(id)), kind: g.kind || "manual", score: g.score }))
+    .filter(g => g.ids.length > 1);
+  A.pairsDirty = false;
+  A.pick = new Set();
+}
+
+function cAdminPartners(b, app) {
+  pairsLoad();
+  const d = A.data;
+  const act = d.students.filter(s => s.active !== false);
+  const byId = new Map(d.students.map(s => [s.id, s]));
+  const inGroup = new Set(A.pairs.flatMap(g => g.ids));
+  const free = act.filter(s => !inGroup.has(s.id));
+  const plan = s => esc(s.review_amount || "—");
+  const kindChip = g => g.kind === "same" ? `<span class="c-chip pri">نفس المقرر</span>`
+    : g.kind === "near" ? `<span class="c-chip">متقارب ${ar(Math.round((g.score || 0) * 100))}٪</span>`
+      : `<span class="c-chip late">اختيارك</span>`;
+  const pick = A.pick;
+  b.innerHTML = `<div class="stack">
+    <div class="c-ahead">
+      <div><h1>جدول الرفيقة القرآنية</h1>
+        <div class="c-sub">اقتراح الرفيقات من خطط المراجعة — المتشابهات مع بعض، والمختلفات تختارينهن أنتِ.</div></div>
+      <div class="row" style="flex-wrap:wrap;gap:8px">
+        <button class="c-btn sm ghost" id="pp-auto">${IC.magic} اقتراح تلقائي</button>
+        <button class="c-btn sm ghost" id="pp-copy">${IC.copy} نسخ للواتساب</button>
+        <button class="c-btn sm ghost" id="pp-pdf" ${A.pairs.length ? "" : "disabled"}>${IC.save} PDF للبنات</button>
+        <button class="c-btn sm pri" id="pp-save">${A.pairsDirty ? "حفظ الجدول •" : "حفظ الجدول"}</button>
+      </div>
+    </div>
+    ${A.pairsDirty ? `<div class="c-lock">${IC.clock} فيه تغييرات ما انحفظت — اضغطي «حفظ الجدول».</div>` : ""}
+    <div class="c-cols">
+      <div class="c-card c-list">
+        <div class="between" style="margin-bottom:10px"><h3>الرفيقات</h3><span class="c-chip">${ar(A.pairs.length)} مجموعة</span></div>
+        ${A.pairs.length ? A.pairs.map((g, gi) => `<div class="c-card solid" style="padding:12px;margin-bottom:10px">
+            <div class="between" style="margin-bottom:6px"><b>${ar(gi + 1)}) ${g.ids.length === 3 ? "ثلاثية" : g.ids.length === 2 ? "رفيقتان" : "مجموعة"}</b>
+              <span class="row" style="gap:6px">${kindChip(g)}<button class="c-link mute" data-undo="${gi}" style="font-size:.8rem">فكّ</button></span></div>
+            ${g.ids.map(id => { const s = byId.get(id) || { name: "؟" }; return `<div class="it" style="margin-bottom:6px"><span class="c-av">${initial(s.name)}</span>
+              <div class="tx"><b>${esc(s.name)}</b><small>${plan(s)}</small></div>
+              ${g.ids.length > 2 ? `<button class="c-link mute" data-out="${gi}:${id}" aria-label="إخراج" style="font-size:.78rem">إخراج</button>` : ""}</div>`; }).join("")}
+            ${pick.size ? `<button class="c-btn sm ghost" data-addto="${gi}" style="width:100%;margin-top:4px">+ أضيفي المختارات لهذي المجموعة</button>` : ""}
+          </div>`).join("")
+          : `<p class="c-sub">ما فيه جدول بعد — اضغطي «اقتراح تلقائي» أو اختاري من القائمة.</p>`}
+      </div>
+      <div class="c-card c-list">
+        <div class="between" style="margin-bottom:4px"><h3>بدون رفيقة</h3><span class="c-chip late">${ar(free.length)}</span></div>
+        <p class="c-sub" style="font-size:.8rem;margin-bottom:10px">خططهن مختلفة أو مكتوبة بالسور — اختاري ٢ أو ٣ واجمعيهن.</p>
+        ${free.length ? free.map(s => `<label class="it" style="cursor:pointer">
+            <input type="checkbox" data-pick="${s.id}" ${pick.has(s.id) ? "checked" : ""} style="width:20px;height:20px;accent-color:var(--c-pri)">
+            <div class="tx"><b>${esc(s.name)}</b><small>${plan(s)}</small></div></label>`).join("")
+          : `<p class="c-sub">كل الحافظات لهن رفيقات 💧</p>`}
+        ${free.length ? `<button class="c-btn sm pri" id="pp-join" style="width:100%;margin-top:6px" ${pick.size >= 2 ? "" : "disabled"}>اجمعي المختارات (${ar(pick.size)})</button>` : ""}
+      </div>
+    </div></div>`;
+
+  const redraw = () => cAdminPartners(b, app);
+  const dirty = () => { A.pairsDirty = true; };
+  $("#pp-auto").onclick = () => {
+    if (A.pairs.length && !confirm("الاقتراح التلقائي يبدّل الجدول الحالي. نكمل؟")) return;
+    A.pairs = suggestPairs(d.students); A.pick = new Set(); dirty(); redraw();
+    toast(`اقترحت ${A.pairs.length} مجموعة — راجعيها واحفظي`);
+  };
+  b.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => {
+    c.checked ? pick.add(c.dataset.pick) : pick.delete(c.dataset.pick); redraw();
+  });
+  const join = $("#pp-join");
+  if (join) join.onclick = () => {
+    if (pick.size < 2) return;
+    A.pairs.push({ ids: [...pick], kind: "manual" }); A.pick = new Set(); dirty(); redraw();
+  };
+  b.querySelectorAll("[data-addto]").forEach(x => x.onclick = () => {
+    const g = A.pairs[+x.dataset.addto]; pick.forEach(id => g.ids.push(id)); g.kind = "manual"; A.pick = new Set(); dirty(); redraw();
+  });
+  b.querySelectorAll("[data-undo]").forEach(x => x.onclick = () => { A.pairs.splice(+x.dataset.undo, 1); dirty(); redraw(); });
+  b.querySelectorAll("[data-out]").forEach(x => x.onclick = () => {
+    const [gi, id] = x.dataset.out.split(":"); const g = A.pairs[+gi];
+    g.ids = g.ids.filter(v => v !== id); g.kind = "manual"; dirty(); redraw();
+  });
+  $("#pp-save").onclick = async () => {
+    const partners = A.pairs.map(g => ({ ids: g.ids, kind: g.kind, score: g.score || null }));
+    try {
+      const saved = await DB.adminSaveSettings(S.admin, { partners });
+      if (!saved || !Array.isArray(saved.partners)) throw new Error("ما انحفظ الجدول في قاعدة البيانات");
+      A.data.settings = saved; A.pairsDirty = false; redraw(); toast("تم حفظ جدول الرفيقات 💧");
+    } catch (e) { toast(e.message); }
+  };
+  $("#pp-pdf").onclick = async () => {
+    const btn = $("#pp-pdf"), old = btn.innerHTML;
+    btn.textContent = "جارٍ تجهيز الملف…"; btn.disabled = true;
+    try { await pairsPDF(A.pairs, byId); }
+    catch (e) { toast("تعذّر تجهيز الملف: " + (e && e.message ? e.message : "")); }
+    finally { btn.innerHTML = old; btn.disabled = false; }
+  };
+  $("#pp-copy").onclick = async () => {
+    const lines = ["جدول الرفيقة القرآنية 🤍", ""];
+    A.pairs.forEach((g, i) => {
+      const names = g.ids.map(id => (byId.get(id) || {}).name || "").join(" ↔ ");
+      lines.push(`${ar(i + 1)}) ${names}`);
+    });
+    if (free.length) { lines.push("", "بدون رفيقة: " + free.map(s => s.name).join("، ")); }
+    const txt = lines.join("\n");
+    try { await navigator.clipboard.writeText(txt); toast("انسخ الجدول — الصقيه في قروب الواتساب"); }
+    catch (e) {
+      const ta = el("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast("انسخ الجدول"); } catch (e2) { toast("ما قدرت أنسخ"); }
+      ta.remove();
+    }
+  };
+}
+
+
+/* ---------- ملف PDF لجدول الرفيقات بروح تصميم الموقع ---------- */
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("تعذّر تحميل مكتبة PDF")); document.head.appendChild(s); });
+}
+async function pairsPages(groups, byId) {
+  try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) { }
+  const [sprout, cloud] = await Promise.all([loadImg(ART.sprout), loadImg(ART.cloud)]);
+  const FB = '"Thmanyah Sans","Noto Sans Arabic",system-ui,sans-serif';
+  const FQ = '"Thmanyah Serif Display",' + FB;
+  const st = S.settings || DEFAULT_SETTINGS;
+  const W = 595, H = 842, SC = 2.5, M = 34, GAP = 14;
+  const colW = (W - M * 2 - GAP) / 2, rowH = 46;
+  const cardH = g => 48 + g.ids.length * rowH;
+  const pages = [];
+  let ctx, cv, y, col, colY;
+
+  const bg = (first) => {
+    cv = document.createElement("canvas"); cv.width = W * SC; cv.height = H * SC;
+    ctx = cv.getContext("2d"); ctx.scale(SC, SC); ctx.direction = "rtl";
+    let g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#D9D6FB"); g.addColorStop(.5, "#ECECFD"); g.addColorStop(1, "#D3E6F9");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    g = ctx.createRadialGradient(W * .8, 60, 10, W * .8, 60, 320);
+    g.addColorStop(0, "rgba(201,196,250,.9)"); g.addColorStop(1, "rgba(201,196,250,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineCap = "round"; ctx.lineWidth = 1.2;
+    [[40, 30, 40], [560, 120, 34], [70, 420, 30], [540, 520, 40], [300, 780, 26], [30, 700, 30]].forEach(([x, yy, l]) => { ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x, yy + l); ctx.stroke(); });
+    if (first) {
+      const sw = 118, sh = sw * sprout.height / sprout.width;
+      ctx.save(); ctx.shadowColor = "rgba(70,60,190,.25)"; ctx.shadowBlur = 20; ctx.shadowOffsetY = 10;
+      ctx.drawImage(sprout, M - 4, 26, sw, sh); ctx.restore();
+      const cw = 70, ch = cw * cloud.height / cloud.width;
+      ctx.globalAlpha = .9; ctx.drawImage(cloud, M + 104, 22, cw, ch); ctx.globalAlpha = 1;
+      ctx.textAlign = "right"; ctx.fillStyle = "#5A54E6"; ctx.font = `700 12px ${FB}`;
+      ctx.fillText(st.course_name || "", W - M, 52);
+      ctx.fillStyle = "#1D1B4F"; ctx.font = `700 34px ${FB}`;
+      ctx.fillText("جدول الرفيقة القرآنية", W - M, 94);
+      ctx.fillStyle = "#615E92"; ctx.font = `400 13px ${FB}`;
+      ctx.fillText("تسمّعين لرفيقتك وتسمّع لك — قريبتان في المقرر، معينتان على الإتقان", W - M, 120, W - M * 2 - 150);
+      ctx.fillText(arDayMonth(todayStr()) + " " + ar(new Date().getFullYear()), W - M, 140);
+      y = 170;
+    } else y = 40;
+    col = 0; colY = [y, y];
+  };
+  const finish = () => {
+    ctx.textAlign = "center"; ctx.fillStyle = "#4A45C9"; ctx.font = `700 15px ${FQ}`;
+    ctx.fillText(`﴿ ${st.slogan} ﴾`, W / 2, H - 30, W - 80);
+    pages.push(cv);
+  };
+  const glass = (x, yy, w, h, r) => {
+    ctx.save(); ctx.shadowColor = "rgba(52,44,170,.14)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
+    ctx.fillStyle = "rgba(255,255,255,.72)"; roundRect(ctx, x, yy, w, h, r); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 1; roundRect(ctx, x + .5, yy + .5, w - 1, h - 1, r); ctx.stroke();
+  };
+  const ellip = (t, max) => { let s = String(t); while (s.length > 2 && ctx.measureText(s).width > max) s = s.slice(0, -1); return s === String(t) ? s : s + "…"; };
+
+  bg(true);
+  const LIMIT = H - 64;
+  groups.forEach((g, i) => {
+    const h = cardH(g);
+    /* العمود الأيمن أولاً ثم الأيسر، ثم صفحة جديدة */
+    let c = colY[0] <= colY[1] ? 0 : 1;
+    if (colY[c] + h > LIMIT) { c = 1 - c; if (colY[c] + h > LIMIT) { finish(); bg(false); c = 0; } }
+    const x = c === 0 ? W - M - colW : M, yy = colY[c];
+    glass(x, yy, colW, h, 20);
+    /* الرقم */
+    ctx.fillStyle = "#5A54E6"; ctx.beginPath(); ctx.arc(x + colW - 26, yy + 24, 13, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = `700 13px ${FB}`; ctx.fillText(ar(i + 1), x + colW - 26, yy + 28.5);
+    ctx.textAlign = "right"; ctx.fillStyle = "#615E92"; ctx.font = `700 11px ${FB}`;
+    ctx.fillText(g.ids.length === 3 ? "ثلاثية" : "رفيقتان", x + colW - 46, yy + 28);
+    /* القطرات الصغيرة في الزاوية */
+    ctx.fillStyle = "rgba(90,84,230,.18)";
+    [[x + 22, yy + 20, 4], [x + 34, yy + 26, 3]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(dx, dy, r, 0, 7); ctx.fill(); });
+    g.ids.forEach((id, k) => {
+      const s = byId.get(id) || { name: "" };
+      const ry = yy + 42 + k * rowH;
+      ctx.fillStyle = k % 2 ? "rgba(90,84,230,.06)" : "rgba(90,84,230,.10)";
+      roundRect(ctx, x + 10, ry, colW - 20, rowH - 6, 14); ctx.fill();
+      const ax = x + colW - 30, ay = ry + (rowH - 6) / 2;
+      const gr = ctx.createLinearGradient(ax - 13, ay - 13, ax + 13, ay + 13);
+      gr.addColorStop(0, k ? "#62C1D6" : "#7A75F4"); gr.addColorStop(1, k ? "#3B93C9" : "#5A54E6");
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(ax, ay, 13, 0, 7); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = `700 12px ${FB}`;
+      ctx.fillText((String(s.name).trim()[0]) || "", ax, ay + 4.5);
+      ctx.textAlign = "right"; ctx.fillStyle = "#1D1B4F"; ctx.font = `700 14px ${FB}`;
+      ctx.fillText(ellip(s.name, colW - 70), ax - 20, ay - 1);
+      ctx.fillStyle = "#615E92"; ctx.font = `400 10.5px ${FB}`;
+      ctx.fillText(ellip(s.review_amount || "", colW - 70), ax - 20, ay + 14);
+    });
+    colY[c] = yy + h + GAP;
+  });
+  finish();
+  return pages;
+}
+
+/* PDF بسيط بدون مكتبات: كل صفحة صورة JPEG بمقاس A4 */
+function jpegPDF(canvases) {
+  const enc = new TextEncoder(), parts = [], offs = [];
+  let len = 0;
+  const push = x => { const u = typeof x === "string" ? enc.encode(x) : x; parts.push(u); len += u.length; };
+  const obj = (n, body) => { offs[n] = len; push(`${n} 0 obj\n`); body(); push("\nendobj\n"); };
+  const n = canvases.length;
+  push("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+  const kids = canvases.map((_, i) => `${3 + i * 3} 0 R`).join(" ");
+  obj(1, () => push("<< /Type /Catalog /Pages 2 0 R >>"));
+  obj(2, () => push(`<< /Type /Pages /Kids [${kids}] /Count ${n} >>`));
+  canvases.forEach((cv, i) => {
+    const pg = 3 + i * 3, ct = pg + 1, im = pg + 2;
+    const b64 = cv.toDataURL("image/jpeg", 0.92).split(",")[1];
+    const bin = atob(b64), jpg = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) jpg[k] = bin.charCodeAt(k);
+    const content = "q 595.28 0 0 841.89 0 0 cm /Im0 Do Q";
+    obj(pg, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`));
+    obj(ct, () => { push(`<< /Length ${content.length} >>\nstream\n`); push(content); push("\nendstream"); });
+    obj(im, () => { push(`<< /Type /XObject /Subtype /Image /Width ${cv.width} /Height ${cv.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`); push(jpg); push("\nendstream"); });
+  });
+  const total = 3 + n * 3, xref = len;
+  let x = `xref\n0 ${total}\n0000000000 65535 f \n`;
+  for (let i = 1; i < total; i++) x += String(offs[i]).padStart(10, "0") + " 00000 n \n";
+  push(x + `trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new Blob(parts, { type: "application/pdf" });
+}
+
+async function pairsPDF(groups, byId) {
+  const pages = await pairsPages(groups, byId);
+  const blob = jpegPDF(pages);
+  const file = `جدول-الرفيقة-القرآنية-${todayStr()}.pdf`;
+  try {
+    const f = new File([blob], file, { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: "جدول الرفيقة القرآنية" }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  const ok = await saveFile(file, blob);
+  toast(ok ? "تم حفظ ملف PDF 💧" : "ما تم الحفظ");
+}
+
 /* ================================================================
    لوحة المشرفات
    ================================================================ */
@@ -3397,6 +3708,7 @@ async function viewAdmin(app) {
     else if (A.tab === "scores") cAdminScores(b, app);
     else if (A.tab === "board") adminBoard(b, app);
     else if (A.tab === "students") adminStudents(b, app);
+    else if (A.tab === "partners") cAdminPartners(b, app);
     else adminSettings(b, app);
     return;
   }
@@ -3404,7 +3716,7 @@ async function viewAdmin(app) {
     <div class="wrap stack">
       ${demoBanner()}
       <div class="tabs" id="a-tabs">
-        ${[["today", "اليوم"], ["scores", "الدرجات"], ["board", "المتصدرات"], ["students", "الحافظات"], ["settings", "الإعدادات"]]
+        ${[["today", "اليوم"], ["scores", "الدرجات"], ["board", "المتصدرات"], ["students", "الحافظات"], ["partners", "الرفيقات"], ["settings", "الإعدادات"]]
       .map(([k, t]) => `<button data-tab="${k}" class="${A.tab === k ? "on" : ""}">${t}</button>`).join("")}
         <button data-tab="exit">خروج</button>
       </div>
@@ -3424,6 +3736,7 @@ async function viewAdmin(app) {
   else if (A.tab === "scores") adminScores(b, app);
   else if (A.tab === "board") adminBoard(b, app);
   else if (A.tab === "students") adminStudents(b, app);
+  else if (A.tab === "partners") cAdminPartners(b, app);
   else adminSettings(b, app);
 }
 
@@ -3673,7 +3986,7 @@ function adminStudents(b, app) {
   const d = A.data;
   b.innerHTML = `<div class="panel" style="margin-bottom:12px">
       <div class="section-title">بيانات الحافظات</div>
-      <p class="muted" style="font-size:.83rem">تظهر هنا البيانات التي كتبتها الحافظة عند التسجيل. إلغاء التفعيل يخفيها من المتصدرات دون حذف بياناتها.</p>
+      <p class="muted" style="font-size:.83rem">تظهر هنا البيانات التي كتبتها الحافظة عند التسجيل، وتقدرين تعدّلين اسمها ورقمها وخطة مراجعتها من «تعديل البيانات». إلغاء التفعيل يخفيها من المتصدرات دون حذف بياناتها.</p>
     </div>
     ${d.students.length ? d.students.map(s => `<div class="srow" data-sid="${s.id}">
       <div class="between">
@@ -3682,10 +3995,11 @@ function adminStudents(b, app) {
           <input type="checkbox" data-act ${s.active ? "checked" : ""} style="width:auto;margin-inline-end:5px">مفعّلة</label>
       </div>
       <div style="margin-top:8px">
-        <div class="kv"><span>كمية المراجعة</span><b>${esc(s.review_amount || "—")}</b></div>
+        <div class="kv"><span>كمية المراجعة</span><b style="text-align:end">${esc(s.review_amount || "—")}</b></div>
         <div class="kv"><span>الواتساب</span><b class="tnum">${esc(s.whatsapp || "—")}</b></div>
         <div class="kv"><span>تاريخ التسجيل</span><b class="tnum">${esc((s.created_at || "").slice(0, 10))}</b></div>
       </div>
+      <button class="btn ghost sm wide" data-edit style="margin-top:10px">✎ تعديل البيانات وخطة المراجعة</button>
       <div class="sfoot">
         <span class="muted" style="font-size:.78rem">نسيت رمزها؟</span>
         <span class="row" style="gap:6px">
@@ -3704,6 +4018,13 @@ function adminStudents(b, app) {
       } catch (e) { toast(e.message); c.checked = !c.checked; }
     };
   });
+  b.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.onclick = () => {
+      const sid = btn.closest(".srow").getAttribute("data-sid");
+      const st = d.students.find(x => x.id === sid);
+      if (st) adminEditStudent(st, app);
+    };
+  });
   b.querySelectorAll("[data-setpin]").forEach(btn => {
     btn.onclick = async () => {
       const card = btn.closest(".srow"), sid = card.getAttribute("data-sid");
@@ -3717,6 +4038,39 @@ function adminStudents(b, app) {
       } catch (e) { toast(e.message); }
     };
   });
+}
+
+/* المشرفة تعدّل اسم الحافظة ورقمها وخطة مراجعتها */
+function adminEditStudent(stu, app) {
+  const R = revInit(stu);
+  const sh = el("div", "c-sheet");
+  sh.innerHTML = `<div class="c-sheet-in"><i class="c-grab"></i>
+    <h3 style="font-size:1.3rem;margin-bottom:4px">تعديل بيانات ${esc(stu.name.split(" ")[0])}</h3>
+    <p class="c-sub" style="margin-bottom:10px;font-size:.84rem">التعديل يظهر للحافظة فورًا في صفحة «إنجازي».</p>
+    <div class="stack">
+      <label class="c-field">الاسم الثلاثي<span class="c-input"><input type="text" id="ae-name" value="${esc(stu.name || "")}"></span></label>
+      <label class="c-field">رقم الواتساب<span class="c-input"><input type="tel" id="ae-wa" inputmode="numeric" value="${esc(stu.whatsapp || "")}"></span></label>
+      <div class="c-field">خطة المراجعة</div>
+      <div id="ae-rev" class="stack"></div>
+      <button class="c-btn pri" id="ae-do">حفظ التعديلات</button>
+      <button class="c-btn ghost" data-x>إلغاء</button>
+    </div></div>`;
+  document.body.appendChild(sh);
+  revBind(sh.querySelector("#ae-rev"), R);
+  sh.addEventListener("click", e => { if (e.target === sh || e.target.closest("[data-x]")) sh.remove(); });
+  sh.querySelector("#ae-do").onclick = async () => {
+    const c = revCompose(R);
+    const patch = { name: $("#ae-name").value.trim(), whatsapp: $("#ae-wa").value.replace(/\D/g, ""),
+      review_amount: c.amount, review_unit: c.unit, review_value: c.value };
+    if (patch.name.length < 3) return toast("اكتبي الاسم كاملاً");
+    if (patch.review_amount.length < 2) return toast("اكتبي خطة المراجعة");
+    try {
+      await DB.adminUpdateStudent(S.admin, stu.id, patch);
+      Object.assign(stu, patch);
+      sh.remove(); toast("تم حفظ بيانات " + patch.name.split(" ")[0]);
+      viewAdmin(app);
+    } catch (e) { toast(e.message); }
+  };
 }
 
 /* ---------------- تبويب الإعدادات ---------------- */
